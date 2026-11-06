@@ -4,12 +4,13 @@
 //! catalogue index. All data is local; nothing here uses the network.
 
 mod catalogue;
+mod library;
 mod storage;
 
 #[cfg(windows)]
 mod spike_s1;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use catalogue::CatalogueIndex;
 use storage::{AppState, Settings};
@@ -94,6 +95,124 @@ fn catalogue_load(state: tauri::State<'_, AppState>) -> Result<CatalogueIndex, S
     Ok(index)
 }
 
+#[tauri::command]
+async fn import_paths(
+    app: tauri::AppHandle,
+    paths: Vec<String>,
+) -> Result<library::ImportSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let mut progress = |index: usize, total: usize, item: &library::ImportItemResult| {
+            let _ = app.emit(
+                "imports:progress",
+                serde_json::json!({
+                    "index": index,
+                    "total": total,
+                    "fileName": item.file_name,
+                    "status": item.status,
+                    "detail": item.detail,
+                }),
+            );
+        };
+        library::import_files(state.inner(), &paths, &mut progress)
+    })
+    .await
+    .map_err(|error| format!("import task failed: {error}"))?
+}
+
+#[tauri::command]
+fn library_list(state: tauri::State<'_, AppState>) -> Result<Vec<library::LibraryItem>, String> {
+    library::list_library(state.inner())
+}
+
+#[tauri::command]
+fn library_remove(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    delete_files: bool,
+) -> Result<(), String> {
+    library::remove_from_library(state.inner(), id, delete_files)
+}
+
+/// Dev-only automation hooks used by local harnesses (never set in normal
+/// use): `GAMESCAPE_DEV_IMPORT` imports a `;`-separated list at startup and
+/// `GAMESCAPE_START_HASH` deep-links the main window after load.
+fn dev_automation(handle: tauri::AppHandle) {
+    use std::io::Write as _;
+
+    if let Ok(spec) = std::env::var("GAMESCAPE_DEV_IMPORT") {
+        let paths: Vec<String> = spec
+            .split(';')
+            .map(|part| part.trim().to_string())
+            .filter(|part| !part.is_empty())
+            .collect();
+        if !paths.is_empty() {
+            let handle = handle.clone();
+            std::thread::spawn(move || {
+                let state = handle.state::<AppState>();
+                let mut progress =
+                    |index: usize, total: usize, item: &library::ImportItemResult| {
+                        let _ = handle.emit(
+                            "imports:progress",
+                            serde_json::json!({
+                                "index": index,
+                                "total": total,
+                                "fileName": item.file_name,
+                                "status": item.status,
+                                "detail": item.detail,
+                            }),
+                        );
+                    };
+                match library::import_files(state.inner(), &paths, &mut progress) {
+                    Ok(summary) => {
+                        for item in &summary.items {
+                            println!(
+                                "[dev-import] {} -> {}{}",
+                                item.file_name,
+                                item.status,
+                                item.detail
+                                    .as_deref()
+                                    .map(|d| format!(" ({d})"))
+                                    .unwrap_or_default()
+                            );
+                        }
+                        let line = format!(
+                            "IMPORT_DONE imported={} duplicates={} failed={}",
+                            summary.imported, summary.duplicates, summary.failed
+                        );
+                        println!("[dev-import] {line}");
+                        if let Ok(path) = std::env::var("GAMESCAPE_SPIKE_OUT") {
+                            if let Ok(mut file) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(path)
+                            {
+                                let _ = writeln!(file, "{line}");
+                            }
+                        }
+                    }
+                    Err(error) => println!("[dev-import] FAILED: {error}"),
+                }
+            });
+        }
+    }
+
+    if let Ok(hash) = std::env::var("GAMESCAPE_START_HASH") {
+        let safe: String = hash
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_'))
+            .collect();
+        if !safe.is_empty() {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(6));
+                if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.eval(&format!("window.location.hash = '#/{safe}';"));
+                }
+            });
+        }
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Application entry                                                   */
 /* ------------------------------------------------------------------ */
@@ -102,9 +221,12 @@ fn catalogue_load(state: tauri::State<'_, AppState>) -> Result<CatalogueIndex, S
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let state = storage::init()?;
             app.manage(state);
+
+            dev_automation(app.handle().clone());
 
             #[cfg(windows)]
             {
@@ -126,7 +248,10 @@ pub fn run() {
             settings_get,
             settings_set,
             db_health,
-            catalogue_load
+            catalogue_load,
+            import_paths,
+            library_list,
+            library_remove
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

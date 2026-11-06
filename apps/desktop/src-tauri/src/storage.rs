@@ -33,6 +33,39 @@ pub fn settings_path() -> Result<PathBuf, String> {
     Ok(app_data_dir()?.join("settings.json"))
 }
 
+/// `%LOCALAPPDATA%\GameScape\cache` (regenerable data lives here).
+pub fn cache_dir() -> Result<PathBuf, String> {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok_or_else(|| "LOCALAPPDATA environment variable is not set".to_string())?;
+    let dir = base.join("GameScape").join("cache");
+    fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    Ok(dir)
+}
+
+pub fn thumbnails_dir() -> Result<PathBuf, String> {
+    let dir = cache_dir()?.join("thumbnails");
+    fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    Ok(dir)
+}
+
+pub fn default_library_dir() -> Result<PathBuf, String> {
+    let base = std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .ok_or_else(|| "USERPROFILE environment variable is not set".to_string())?;
+    Ok(base.join("Pictures").join("GameScape Library"))
+}
+
+/// The library location in effect: user setting first, default second.
+pub fn effective_library_dir(settings: &Settings) -> Result<PathBuf, String> {
+    if let Some(dir) = settings.library_dir.as_deref() {
+        if !dir.trim().is_empty() {
+            return Ok(PathBuf::from(dir));
+        }
+    }
+    default_library_dir()
+}
+
 /* ------------------------------------------------------------------ */
 /* Settings (JSON)                                                     */
 /* ------------------------------------------------------------------ */
@@ -43,6 +76,8 @@ pub fn settings_path() -> Result<PathBuf, String> {
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub theme: Option<String>,
+    /// Custom library location; `None` uses the default under Pictures.
+    pub library_dir: Option<String>,
 }
 
 pub fn load_settings() -> Settings {

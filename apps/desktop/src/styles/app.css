@@ -483,3 +483,52 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------------------------------------------------------------------
+ * Library
+ * ------------------------------------------------------------------- */
+
+.library-thumb {
+  aspect-ratio: 16 / 9;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border-subtle);
+  overflow: hidden;
+  background: var(--gs-bg-raised);
+}
+
+.library-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chip-success {
+  border-color: color-mix(in srgb, var(--gs-state-success) 45%, transparent);
+  color: var(--gs-state-success);
+}
+
+.chip-warning {
+  border-color: color-mix(in srgb, var(--gs-state-warning) 45%, transparent);
+  color: var(--gs-state-warning);
+}
+
+.chip-danger {
+  border-color: color-mix(in srgb, var(--gs-state-danger) 45%, transparent);
+  color: var(--gs-state-danger);
+}
+
+.import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.import-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gs-space-3);
+  flex-wrap: wrap;
+}

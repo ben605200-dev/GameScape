@@ -6,7 +6,7 @@
  * desktop-only data returns null, so UI work never blocks on the backend.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 export const IN_TAURI =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -122,4 +122,80 @@ export async function loadCatalogue(): Promise<CatalogueIndex | null> {
   } catch {
     return null;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Library                                                             */
+/* ------------------------------------------------------------------ */
+
+export interface LibraryItem {
+  id: number;
+  title: string;
+  format?: string | null;
+  width?: number | null;
+  height?: number | null;
+  bytes?: number | null;
+  thumbPath?: string | null;
+  filePath?: string | null;
+  addedAt: string;
+}
+
+export interface ImportItemResult {
+  fileName: string;
+  /** imported | duplicate | unsupported | invalid | corrupted | failed */
+  status: string;
+  detail?: string | null;
+  id?: number | null;
+}
+
+export interface ImportSummary {
+  imported: number;
+  duplicates: number;
+  failed: number;
+  items: ImportItemResult[];
+}
+
+export interface ImportProgressEvent {
+  index: number;
+  total: number;
+  fileName: string;
+  status: string;
+  detail?: string | null;
+}
+
+export async function importFiles(paths: string[]): Promise<ImportSummary | null> {
+  if (!IN_TAURI) return null;
+  try {
+    return await invoke<ImportSummary>("import_paths", { paths });
+  } catch {
+    return null;
+  }
+}
+
+export async function listLibrary(): Promise<LibraryItem[] | null> {
+  if (!IN_TAURI) return null;
+  try {
+    return await invoke<LibraryItem[]>("library_list");
+  } catch {
+    return null;
+  }
+}
+
+export async function removeLibraryItem(
+  id: number,
+  deleteFiles: boolean,
+): Promise<boolean> {
+  if (!IN_TAURI) return false;
+  try {
+    await invoke("library_remove", { id, deleteFiles });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Turn a local file path into a webview-loadable asset URL. */
+export function assetUrl(path: string | null | undefined): string {
+  if (!path || !IN_TAURI) return "";
+  return convertFileSrc(path);
 }

@@ -23,3 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interactive wallpaper prototype **validated on the desktop**: a cursor-reactive light field renders behind desktop icons, driven by a global-cursor bridge in the core (no input capture, no focus stealing). Evidence and limitations in `docs/engineering/spike-s1-results.md`.
 - Wallpaper detail pages: clickable cards, full metadata, and a live pointer-reactive preview for interactive entries. The `interactive` flag now lives in the catalogue schema, the Rust model, and the seed.
 - Fixed: the spike launch gate now recognises the interactive prototype mode.
+- Personal Library **import pipeline** (Phase 3 start): file-picker and drag-and-drop imports for JPG/PNG/WEBP/GIF with magic-byte validation, SHA-256 duplicate detection, decode probing, managed copies in the library folder, JPEG thumbnails, and per-file result reporting (imported / duplicate / unsupported / invalid / corrupted / failed).
+- Library page: real grid with thumbnails served through the Tauri asset protocol, per-item removal, and live import progress rows.
+- Dev automation hooks (`GAMESCAPE_DEV_IMPORT`, `GAMESCAPE_START_HASH`) for local test harnesses — never active in normal use.
