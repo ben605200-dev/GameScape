@@ -1,0 +1,111 @@
+/* =====================================================================
+ * GameScape design tokens — single source of truth.
+ * Consumed by the desktop app (and later the website).
+ * Theme is selected via [data-theme="dark" | "light"] on <html>.
+ * ===================================================================== */
+
+:root {
+  /* --- Typography --- */
+  --gs-font-ui: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --gs-font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+
+  /* --- Spacing (4px base) --- */
+  --gs-space-1: 4px;
+  --gs-space-2: 8px;
+  --gs-space-3: 12px;
+  --gs-space-4: 16px;
+  --gs-space-6: 24px;
+  --gs-space-8: 32px;
+  --gs-space-12: 48px;
+  --gs-space-16: 64px;
+
+  /* --- Radius --- */
+  --gs-radius-sm: 8px;
+  --gs-radius-md: 12px;
+  --gs-radius-lg: 16px;
+  --gs-radius-full: 999px;
+
+  /* --- Motion --- */
+  --gs-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --gs-duration-micro: 120ms;
+  --gs-duration-standard: 200ms;
+  --gs-duration-emphasis: 280ms;
+}
+
+/* ---------------------------------------------------------------------
+ * Dark theme (default)
+ * ------------------------------------------------------------------- */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --gs-bg-base: #0e1116;
+  --gs-bg-surface: #151922;
+  --gs-bg-raised: #1c212c;
+
+  --gs-border-subtle: #252b37;
+  --gs-border-strong: #323a49;
+
+  --gs-text-primary: #f2f4f8;
+  --gs-text-secondary: #a7afbf;
+  --gs-text-muted: #6e7889;
+
+  --gs-accent-primary: #22d3ee;
+  --gs-accent-secondary: #7c5cff;
+  --gs-accent-blue: #4c8dff;
+
+  --gs-state-success: #34d399;
+  --gs-state-warning: #fbbf24;
+  --gs-state-danger: #f87171;
+
+  --gs-focus-ring: rgba(34, 211, 238, 0.6);
+
+  --gs-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --gs-shadow-2: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --gs-shadow-3: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------------------------------------------------------------------
+ * Light theme
+ * Note: accents are darkened for AA contrast on light surfaces
+ * (pure cyan fails contrast on white).
+ * ------------------------------------------------------------------- */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --gs-bg-base: #f5f7fb;
+  --gs-bg-surface: #ffffff;
+  --gs-bg-raised: #ffffff;
+
+  --gs-border-subtle: #e3e7ef;
+  --gs-border-strong: #c9d0dd;
+
+  --gs-text-primary: #131720;
+  --gs-text-secondary: #4a5364;
+  --gs-text-muted: #79839a;
+
+  --gs-accent-primary: #0891b2;
+  --gs-accent-secondary: #6d4aff;
+  --gs-accent-blue: #2563eb;
+
+  --gs-state-success: #059669;
+  --gs-state-warning: #b45309;
+  --gs-state-danger: #dc2626;
+
+  --gs-focus-ring: rgba(8, 145, 178, 0.55);
+
+  --gs-shadow-1: 0 1px 2px rgba(19, 23, 32, 0.08);
+  --gs-shadow-2: 0 8px 24px rgba(19, 23, 32, 0.1);
+  --gs-shadow-3: 0 16px 48px rgba(19, 23, 32, 0.16);
+}
+
+/* ---------------------------------------------------------------------
+ * Reduced motion
+ * ------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --gs-duration-micro: 0ms;
+    --gs-duration-standard: 0ms;
+    --gs-duration-emphasis: 0ms;
+  }
+}
