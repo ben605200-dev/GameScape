@@ -81,3 +81,39 @@ are deliberately **not committed** — they show a real desktop.
 - The spike positions windows using `GetWindowRect` origin math; production
   code should move to `MapWindowPoints` for exactness across unusual shells
   and DPI configurations.
+
+## Follow-up (2026-11-07): Interactive prototype — cursor-reactive wallpapers
+
+**Question:** can wallpapers react to the mouse without receiving input?
+(The desktop layer does not deliver mouse input to reparented windows.)
+
+**Technique validated:** the core polls the global cursor (`GetCursorPos`,
+~60 Hz, delta-gated) and pushes per-monitor local coordinates into each
+wallpaper page (`window.__gsCursor(x, y)` via webview eval). The page renders a
+light field that lerps toward the pointer. No clicks, no focus, no hooks, no
+interference with the user's applications.
+
+**Evidence (both surfaces captured mid-session):**
+
+- Real cursor logged by the harness: (−418, 722) screen → local (1502, 717) on
+  the left monitor.
+- Captured wallpaper surface on that monitor: readout `cursor: 1500, 719`,
+  light core at exactly that position (the 2 px offset is the user still
+  moving the mouse between the log and the capture).
+- Both surfaces attached (`child=true layered=true`); attach log identical to
+  the S1 run.
+
+**Known prototype limitations (to resolve in the Phase 5 desktop host):**
+
+- The monitor that never received a cursor update keeps a stale frame (no
+  repaint until the cursor enters it — visible as an off-centre idle glow on
+  the second capture). Production: idle animation + periodic repaint.
+- Per-monitor DPI and resize handling are approximate in the prototype
+  (window created at default size, resized after attach).
+- Poll cadence and pause rules (fullscreen/battery) integrate with the
+  governor in Phase 5.
+
+**Schema:** the catalogue now reserves an `interactive` boolean per entry
+(`packages/catalogue/schema/catalogue.schema.json`); Neon Alley and Pixel Rush
+carry the flag in the seed and render a live in-pointer preview on their
+detail pages in the app.

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Database, Image, Layers, Monitor, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
 import {
   getDbHealth,
   IN_TAURI,
@@ -107,7 +108,11 @@ export function HomePage() {
           </div>
           <div className="card-grid">
             {featured.map((entry) => (
-              <div key={entry.id} className="card media-card">
+              <Link
+                key={entry.id}
+                to={`/wallpapers/${entry.id}`}
+                className="card media-card media-card-link"
+              >
                 <div
                   className="gradient-thumb"
                   style={{
@@ -120,7 +125,7 @@ export function HomePage() {
                   <span>{entry.game ?? "GameScape Original"}</span>
                   <span className="chip">{MEDIA_LABELS[entry.mediaType] ?? entry.mediaType}</span>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>

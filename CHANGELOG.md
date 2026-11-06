@@ -20,3 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local storage foundation: JSON settings store and a SQLite database with versioned migrations under `%APPDATA%\GameScape`.
 - Bundled seed catalogue (fictional preview data) with Rust-side validation, powering the Home shelf and the Wallpapers grid.
 - ADR-0002: shell styling approach (tokens-first; Tailwind adopted with the Phase 3 screens).
+- Interactive wallpaper prototype **validated on the desktop**: a cursor-reactive light field renders behind desktop icons, driven by a global-cursor bridge in the core (no input capture, no focus stealing). Evidence and limitations in `docs/engineering/spike-s1-results.md`.
+- Wallpaper detail pages: clickable cards, full metadata, and a live pointer-reactive preview for interactive entries. The `interactive` flag now lives in the catalogue schema, the Rust model, and the seed.
+- Fixed: the spike launch gate now recognises the interactive prototype mode.

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ben605200-dev/GameScape/packages/catalogue/schema/catalogue.schema.json",
+  "title": "GameScape Catalogue Index",
+  "description": "Versioned catalogue index consumed by the desktop app and the website. This is the preview schema (v0.1): fields grow additively; breaking changes bump schemaVersion and are coordinated with catalogue_min_app_version.",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "mediaType",
+        "tags",
+        "resolution",
+        "licenceId",
+        "addedAt",
+        "placeholder"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "Immutable once published; unique across the catalogue."
+        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": ["string", "null"], "maxLength": 500 },
+        "mediaType": { "enum": ["static", "gif", "mp4"] },
+        "game": { "type": ["string", "null"], "maxLength": 80 },
+        "tags": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" }
+        },
+        "resolution": {
+          "type": "object",
+          "required": ["width", "height"],
+          "additionalProperties": false,
+          "properties": {
+            "width": { "type": "integer", "minimum": 320, "maximum": 16384 },
+            "height": { "type": "integer", "minimum": 200, "maximum": 16384 }
+          }
+        },
+        "licenceId": {
+          "enum": [
+            "CC0-1.0",
+            "CC-BY-4.0",
+            "CC-BY-SA-4.0",
+            "PROPRIETARY-PERMISSION",
+            "GAMESCAPE-ORIGINAL"
+          ]
+        },
+        "addedAt": { "type": "string", "format": "date" },
+        "placeholder": {
+          "type": "object",
+          "required": ["dominantHex", "accentHex"],
+          "additionalProperties": false,
+          "properties": {
+            "dominantHex": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "accentHex": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+          }
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "Reserved: marks wallpapers with cursor-reactive effects. The detailed effect descriptor lands with the desktop host subsystem (Phase 5); the cursor bridge prototype is already validated in the spike harness."
+        }
+      }
+    }
+  }
+}

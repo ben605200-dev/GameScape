@@ -109,10 +109,13 @@ pub fn run() {
             #[cfg(windows)]
             {
                 // Phase 0 verification gate. Never active in normal use.
-                let spike_enabled = std::env::var("GAMESCAPE_SPIKE_S1")
+                let attach_test = std::env::var("GAMESCAPE_SPIKE_S1")
                     .map(|value| value == "1")
                     .unwrap_or(false);
-                if spike_enabled {
+                let interactive_prototype = std::env::var("GAMESCAPE_SPIKE_INTERACTIVE")
+                    .map(|value| value == "1")
+                    .unwrap_or(false);
+                if attach_test || interactive_prototype {
                     spike_s1::run(app.handle().clone());
                 }
             }

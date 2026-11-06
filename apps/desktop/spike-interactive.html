@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GameScape — Interactive Prototype</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #07090d;
+      }
+
+      #stage {
+        position: fixed;
+        inset: 0;
+        display: block;
+      }
+
+      .hud {
+        position: fixed;
+        left: 24px;
+        bottom: 24px;
+        padding: 10px 16px;
+        border-radius: 12px;
+        background: rgba(10, 12, 17, 0.66);
+        border: 1px solid rgba(34, 211, 238, 0.35);
+        color: #f2f4f8;
+        font:
+          500 14px/1.5 "Segoe UI",
+          system-ui,
+          sans-serif;
+        letter-spacing: 0.02em;
+      }
+
+      .hud b {
+        color: #22d3ee;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .hud .t {
+        color: #a7afbf;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div class="hud">
+      GameScape · Interactive Prototype<br />
+      cursor: <b id="pos">–</b>
+      <span class="t">(move your mouse — the light follows)</span>
+    </div>
+    <script>
+      (() => {
+        const canvas = document.getElementById("stage");
+        const ctx = canvas.getContext("2d");
+        const posEl = document.getElementById("pos");
+
+        let W = 0;
+        let H = 0;
+        let DPR = 1;
+
+        function resize() {
+          DPR = window.devicePixelRatio || 1;
+          W = window.innerWidth;
+          H = window.innerHeight;
+          canvas.width = Math.round(W * DPR);
+          canvas.height = Math.round(H * DPR);
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        }
+        window.addEventListener("resize", resize);
+        resize();
+
+        // Target position arrives from the Rust cursor bridge; the rendered
+        // position lerps toward it for a smooth, organic feel.
+        let target = { x: W * 0.5, y: H * 0.5, has: false };
+        let cur = { x: W * 0.5, y: H * 0.5 };
+        const trail = [];
+
+        window.__gsCursor = (x, y) => {
+          target = { x, y, has: true };
+          posEl.textContent = `${Math.round(x)}, ${Math.round(y)}`;
+        };
+
+        const blobs = [
+          { hue: 265, radius: 0.55, speed: 0.045 },
+          { hue: 190, radius: 0.42, speed: 0.075 },
+        ];
+
+        function frame(now) {
+          cur.x += (target.x - cur.x) * 0.08;
+          cur.y += (target.y - cur.y) * 0.08;
+
+          trail.push({ x: cur.x, y: cur.y, t: now });
+          while (trail.length && now - trail[0].t > 650) trail.shift();
+
+          const bg = ctx.createLinearGradient(0, 0, W, H);
+          bg.addColorStop(0, "#07090d");
+          bg.addColorStop(1, "#0c1016");
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, W, H);
+
+          for (const blob of blobs) {
+            const px = cur.x + Math.sin(now * blob.speed * 0.001) * W * 0.06;
+            const py = cur.y + Math.cos(now * blob.speed * 0.0013) * H * 0.06;
+            const radius = Math.max(W, H) * blob.radius;
+            const g = ctx.createRadialGradient(px, py, 0, px, py, radius);
+            g.addColorStop(0, `hsla(${blob.hue}, 90%, 60%, 0.34)`);
+            g.addColorStop(1, "hsla(0, 0%, 0%, 0)");
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, W, H);
+          }
+
+          for (let i = 0; i < trail.length; i += 1) {
+            const p = trail[i];
+            const ratio = i / trail.length;
+            const alpha = ratio * ratio * 0.5;
+            const r = 4 + 26 * ratio;
+            const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+            g.addColorStop(0, `rgba(34, 211, 238, ${alpha})`);
+            g.addColorStop(1, "rgba(34, 211, 238, 0)");
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          const core = ctx.createRadialGradient(cur.x, cur.y, 0, cur.x, cur.y, 48);
+          core.addColorStop(0, "rgba(240, 250, 255, 0.85)");
+          core.addColorStop(0.25, "rgba(34, 211, 238, 0.55)");
+          core.addColorStop(1, "rgba(124, 92, 255, 0)");
+          ctx.fillStyle = core;
+          ctx.beginPath();
+          ctx.arc(cur.x, cur.y, 48, 0, Math.PI * 2);
+          ctx.fill();
+
+          requestAnimationFrame(frame);
+        }
+
+        requestAnimationFrame(frame);
+      })();
+    </script>
+  </body>
+</html>

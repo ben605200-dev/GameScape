@@ -38,6 +38,10 @@ pub struct CatalogueEntry {
     pub licence_id: String,
     pub added_at: String,
     pub placeholder: PlaceholderColors,
+    /// Cursor-reactive wallpaper prototype flag. The desktop host ships this
+    /// in Phase 5; the spike harness validates the technique today.
+    #[serde(default)]
+    pub interactive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

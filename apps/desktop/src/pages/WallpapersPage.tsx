@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Image } from "lucide-react";
+import { Link } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { loadCatalogue, type CatalogueIndex } from "../lib/ipc";
 
@@ -48,15 +49,22 @@ export function WallpapersPage() {
   return (
     <div className="page">
       <div className="row">
-        <span className="chip chip-accent">Seed catalogue · v{catalogue.schemaVersion}</span>
+        <span className="chip chip-accent">
+          Seed catalogue · v{catalogue.schemaVersion}
+        </span>
         <span className="muted">
-          Preview data — full discovery, search and downloads arrive in Phase 3.
+          Preview data — search and downloads arrive in Phase 3. Click a card for
+          details.
         </span>
       </div>
 
       <div className="card-grid">
         {catalogue.entries.map((entry) => (
-          <div key={entry.id} className="card media-card">
+          <Link
+            key={entry.id}
+            to={`/wallpapers/${entry.id}`}
+            className="card media-card media-card-link"
+          >
             <div
               className="gradient-thumb"
               style={{
@@ -80,9 +88,13 @@ export function WallpapersPage() {
               <span className="mono">
                 {entry.resolution.width}×{entry.resolution.height}
               </span>
-              <span className="muted">{entry.licenceId}</span>
+              {entry.interactive ? (
+                <span className="chip chip-accent">Interactive</span>
+              ) : (
+                <span className="muted">{entry.licenceId}</span>
+              )}
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

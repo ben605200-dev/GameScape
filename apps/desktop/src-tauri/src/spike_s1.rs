@@ -20,6 +20,11 @@
 //!   6. Appends a step log to the file named by `GAMESCAPE_SPIKE_OUT`,
 //!      ending in `ATTACHED_OK` or `ATTACH_FAILED: reason`.
 //!
+//! Interactive prototype: set `GAMESCAPE_SPIKE_INTERACTIVE=1` to serve
+//! `spike-interactive.html` and additionally stream the global cursor
+//! position into every surface — the cursor-reactive wallpaper technique
+//! (passive: no clicks, no focus, no interference).
+//!
 //! Known wrapper quirks (verified against windows 0.62.2 source):
 //!   - `SetParent` reports `Err` whenever the window's previous parent was
 //!     NULL (the very first attach succeeds but looks like an error).
@@ -36,12 +41,12 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use windows::core::{BOOL, PCWSTR};
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, FindWindowExW, FindWindowW, GetWindow, GetWindowLongPtrW, GetWindowRect,
-    SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT, LWA_ALPHA, SMTO_NORMAL,
-    SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WS_CHILD, WS_EX_LAYERED,
+    EnumWindows, FindWindowExW, FindWindowW, GetCursorPos, GetWindow, GetWindowLongPtrW,
+    GetWindowRect, SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW,
+    SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT, LWA_ALPHA,
+    SMTO_NORMAL, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WS_CHILD, WS_EX_LAYERED,
     WS_EX_NOREDIRECTIONBITMAP, WS_POPUP,
 };
 
@@ -67,17 +72,29 @@ pub fn run(app: AppHandle) {
         let _ = main.hide();
     }
 
-    emit("spike S1 starting");
+    let interactive = std::env::var("GAMESCAPE_SPIKE_INTERACTIVE")
+        .map(|value| value == "1")
+        .unwrap_or(false);
+    emit(&format!(
+        "spike starting (mode={})",
+        if interactive { "interactive" } else { "attach" }
+    ));
 
     let monitors = collect_monitors(&app);
     emit(&format!("{} monitor(s) detected", monitors.len()));
 
     let mut specs: Vec<HostSpec> = Vec::new();
+    let mut bridge_targets: Vec<(String, i32, i32, u32, u32)> = Vec::new();
     let mut handles = Vec::new();
+    let page = if interactive {
+        "spike-interactive.html"
+    } else {
+        "spike.html"
+    };
 
     for (index, (x, y, w, h)) in monitors.iter().enumerate() {
         let label = format!("{SPIKE_WINDOW_PREFIX}-{index}");
-        match WebviewWindowBuilder::new(&app, label.as_str(), WebviewUrl::App("spike.html".into()))
+        match WebviewWindowBuilder::new(&app, label.as_str(), WebviewUrl::App(page.into()))
             .title("GameScape Spike S1")
             .decorations(false)
             .resizable(false)
@@ -99,6 +116,7 @@ pub fn run(app: AppHandle) {
                         w: *w,
                         h: *h,
                     });
+                    bridge_targets.push((label.clone(), *x, *y, *w, *h));
                     handles.push(window);
                 }
                 Err(error) => emit(&format!("window[{index}] hwnd unavailable: {error}")),
@@ -118,12 +136,20 @@ pub fn run(app: AppHandle) {
         std::mem::forget(window);
     }
 
+    let app_for_thread = app.clone();
     thread::spawn(move || {
         // Give the dev-server pages a moment to load. The real subsystem will
         // hook a page-load event instead of sleeping.
         thread::sleep(Duration::from_secs(4));
         match attach_all(&specs) {
-            Ok(()) => emit("ATTACHED_OK"),
+            Ok(()) => {
+                emit("ATTACHED_OK");
+                if interactive {
+                    thread::spawn(move || {
+                        cursor_bridge(app_for_thread, bridge_targets);
+                    });
+                }
+            }
             Err(error) => {
                 for spec in &specs {
                     let hwnd = HWND(spec.hwnd_raw as *mut core::ffi::c_void);
@@ -288,6 +314,48 @@ fn child_chain_contains(parent: HWND, needle: HWND) -> bool {
         cursor = unsafe { GetWindow(current, GW_HWNDNEXT) }.ok();
     }
     false
+}
+
+/// Streams the global cursor position into every attached wallpaper surface.
+///
+/// Wallpapers never receive real input (a documented property of the desktop
+/// layer) — but they don't need it: the core reads the cursor globally via
+/// `GetCursorPos` and pushes per-monitor local coordinates into each page,
+/// which renders a passive light field that follows the pointer. No clicks,
+/// no focus stealing, no interference with whatever the user is doing.
+fn cursor_bridge(app: AppHandle, monitors: Vec<(String, i32, i32, u32, u32)>) {
+    emit(&format!("cursor bridge started ({} surface(s))", monitors.len()));
+    let mut last = POINT {
+        x: i32::MIN,
+        y: i32::MIN,
+    };
+
+    loop {
+        let mut point = POINT { x: 0, y: 0 };
+        let ok = unsafe { GetCursorPos(&mut point) }.is_ok();
+
+        if ok && (point.x != last.x || point.y != last.y) {
+            last = point;
+            for (label, origin_x, origin_y, width, height) in &monitors {
+                let local_x = point.x - origin_x;
+                let local_y = point.y - origin_y;
+                if local_x >= 0
+                    && local_y >= 0
+                    && local_x < *width as i32
+                    && local_y < *height as i32
+                {
+                    if let Some(window) = app.get_webview_window(label) {
+                        let script = format!(
+                            "window.__gsCursor && window.__gsCursor({local_x}, {local_y});"
+                        );
+                        let _ = window.eval(&script);
+                    }
+                }
+            }
+        }
+
+        thread::sleep(Duration::from_millis(16));
+    }
 }
 
 struct EnumTarget {

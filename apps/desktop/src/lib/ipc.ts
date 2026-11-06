@@ -105,6 +105,8 @@ export interface CatalogueEntry {
   licenceId: string;
   addedAt: string;
   placeholder: PlaceholderColors;
+  /** Cursor-reactive wallpaper flag (desktop runtime ships in Phase 5). */
+  interactive?: boolean;
 }
 
 export interface CatalogueIndex {
