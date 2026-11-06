@@ -4,7 +4,7 @@ The GameScape Windows application.
 
 **Stack:** Tauri v2 · Rust core (`src-tauri/`) · React + TypeScript + Vite (`src/`)
 
-**Status:** scaffold pending (next Phase 1 step). Planned structure:
+**Status:** scaffold in place — Tauri v2.12, React 19, Vite 8. Rust side compiles clean (`cargo check` in `src-tauri/`); frontend builds clean (`pnpm --filter @gamescape/desktop build`). Structure:
 
 ```
 src/          React UI (app shell, features, components, lib)
