@@ -191,7 +191,7 @@ fn analyze_gif(bytes: &[u8]) -> Result<(u32, f64), String> {
     Ok((frames, total_ms as f64 / 1000.0))
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hasher

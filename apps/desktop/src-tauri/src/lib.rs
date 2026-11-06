@@ -4,6 +4,7 @@
 //! catalogue index. All data is local; nothing here uses the network.
 
 mod catalogue;
+mod desktop_host;
 mod library;
 mod storage;
 
@@ -224,6 +225,83 @@ fn library_read_data(state: tauri::State<'_, AppState>, id: i64) -> Result<Strin
     library::read_file_data_url(state.inner(), id)
 }
 
+// Desktop-host commands run off the main thread (`async`): runtime window
+// creation must be dispatched to the event loop from a separate thread
+// (creating a WebView2 while nested inside an IPC callback deadlocks the
+// main thread), and attach/apply work blocks briefly.
+#[tauri::command]
+async fn host_apply_media(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+    media_id: i64,
+) -> Result<String, String> {
+    let (path, format, title) = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("database lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT path, format, title FROM media WHERE id = ?1",
+            [media_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .map_err(|e| format!("library item not found: {e}"))?
+    };
+    let path = path.ok_or("this entry has no file on disk")?;
+    let format_value = format.unwrap_or_default().to_ascii_lowercase();
+
+    let kind = match format_value.as_str() {
+        "mp4" => "video",
+        "gif" => "gif",
+        _ => "static",
+    };
+
+    if kind == "static" {
+        desktop_host::stop_all(&app, host.inner())?;
+        let applied = desktop_host::apply_static(state.inner(), &path, Some(&format_value))?;
+        desktop_host::log_line(&format!("HOST_APPLY_OK static {applied}"));
+        Ok("static".to_string())
+    } else {
+        desktop_host::apply_animated(&app, host.inner(), &path, kind, &title)?;
+        desktop_host::log_line(&format!("HOST_APPLY_OK {kind} {title}"));
+        Ok(kind.to_string())
+    }
+}
+
+#[tauri::command]
+async fn host_stop(
+    app: tauri::AppHandle,
+    host: tauri::State<'_, desktop_host::HostState>,
+) -> Result<(), String> {
+    desktop_host::stop_all(&app, host.inner())
+}
+
+#[tauri::command]
+fn host_status(host: tauri::State<'_, desktop_host::HostState>) -> Vec<desktop_host::HostSurface> {
+    desktop_host::status(host.inner())
+}
+
+#[tauri::command]
+async fn host_set_paused(
+    app: tauri::AppHandle,
+    host: tauri::State<'_, desktop_host::HostState>,
+    paused: bool,
+) -> Result<(), String> {
+    desktop_host::set_paused(&app, host.inner(), paused)
+}
+
+#[tauri::command]
+fn host_restore_previous(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    desktop_host::restore_previous(state.inner())
+}
+
 #[tauri::command]
 fn favourites_list(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
     let conn = state
@@ -431,12 +509,14 @@ fn dev_automation(handle: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let state = storage::init()?;
             app.manage(state);
+            app.manage(desktop_host::HostState::new());
+            desktop_host::init(app.handle());
 
             dev_automation(app.handle().clone());
 
@@ -477,9 +557,20 @@ pub fn run() {
             collection_delete,
             collection_set_membership,
             collection_memberships,
+            host_apply_media,
+            host_stop,
+            host_status,
+            host_set_paused,
+            host_restore_previous,
             favourites_list,
             favourite_set
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            desktop_host::shutdown(app_handle);
+        }
+    });
 }

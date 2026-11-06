@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GameScape Wallpaper</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+
+      #media {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <video id="media" muted loop playsinline></video>
+    <script type="module">
+      import { convertFileSrc } from "@tauri-apps/api/core";
+
+      const params = new URLSearchParams(location.search);
+      const kind = params.get("kind") ?? "video";
+      const filePath = params.get("path") ?? "";
+      const media = document.getElementById("media");
+
+      const src = convertFileSrc(filePath);
+      if (kind === "gif") {
+        // An animated GIF renders in a plain img element; reuse the <video>
+        // tag only for video media.
+        const image = document.createElement("img");
+        image.id = "media";
+        image.src = src;
+        image.alt = "";
+        image.style.display = "block";
+        media.replaceWith(image);
+      } else {
+        media.src = src;
+        media.style.display = "block";
+        media.play().catch(() => {
+          /* autoplay blocked — stays on the first frame */
+        });
+      }
+
+      // Governor/UI control surface (called via webview eval).
+      window.__gsHost = {
+        setPaused(paused) {
+          const element = document.getElementById("media");
+          if (!element || element.tagName !== "VIDEO") return;
+          if (paused) {
+            element.pause();
+          } else {
+            element.play().catch(() => {});
+          }
+        },
+      };
+    </script>
+  </body>
+</html>

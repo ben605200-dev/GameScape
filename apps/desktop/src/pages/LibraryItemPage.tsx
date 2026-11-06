@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FolderOpen, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, FolderOpen, Monitor, Save, Trash2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   assetUrl,
@@ -7,6 +7,8 @@ import {
   collectionMemberships,
   collectionsList,
   collectionSetMembership,
+  hostApplyMedia,
+  IN_TAURI,
   libraryReveal,
   libraryUpdate,
   listLibrary,
@@ -46,6 +48,8 @@ export function LibraryItemPage() {
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
   const [memberships, setMemberships] = useState<Set<string>>(new Set());
   const [newCollection, setNewCollection] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const list = await listLibrary();
@@ -134,6 +138,23 @@ export function LibraryItemPage() {
     if (!result.ok) setError(result.error);
   };
 
+  const applyToDesktop = async () => {
+    setApplying(true);
+    setError(null);
+    const result = await hostApplyMedia(itemId);
+    if (result.ok) {
+      setApplyResult(
+        result.value === "static"
+          ? "Applied as desktop wallpaper"
+          : `Animating on your desktop (${result.value})`,
+      );
+      window.setTimeout(() => setApplyResult(null), 4000);
+    } else {
+      setError(result.error);
+    }
+    setApplying(false);
+  };
+
   const remove = async () => {
     if (!item) return;
     const message = deleteFile
@@ -176,6 +197,7 @@ export function LibraryItemPage() {
         </Link>
         <span className="chip">{item.format?.toUpperCase() ?? "file"}</span>
         {savedFlash && <span className="chip chip-success">Saved</span>}
+        {applyResult && <span className="chip chip-success">{applyResult}</span>}
         {error && <span className="chip chip-danger">{error}</span>}
       </div>
 
@@ -240,6 +262,15 @@ export function LibraryItemPage() {
           </dl>
           <span className="path-text">{item.filePath}</span>
           <div className="row">
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={() => void applyToDesktop()}
+              disabled={applying || !IN_TAURI}
+            >
+              <Monitor size={15} aria-hidden="true" />
+              {applying ? "Applying…" : "Set as desktop wallpaper"}
+            </button>
             <button type="button" className="button" onClick={() => void reveal()}>
               <FolderOpen size={15} aria-hidden="true" /> Show in Explorer
             </button>

@@ -8,6 +8,19 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react()],
 
+  // Multi-page app: the main UI plus full-window renderer pages used by the
+  // desktop host (animated wallpapers) and the Phase 0 spike harnesses.
+  build: {
+    rollupOptions: {
+      input: {
+        index: "index.html",
+        "wallpaper-host": "wallpaper-host.html",
+        spike: "spike.html",
+        "spike-interactive": "spike-interactive.html",
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

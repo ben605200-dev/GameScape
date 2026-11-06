@@ -180,8 +180,19 @@ ALTER TABLE media ADD COLUMN frame_count INTEGER;
 ALTER TABLE media ADD COLUMN has_audio INTEGER;
 "#;
 
+/// Schema v3 — wallpaper application state: what GameScape applied per
+/// monitor and the wallpaper that was in place before (for restore).
+const V3_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS wallpaper_state (
+  monitor_id TEXT PRIMARY KEY,
+  previous_path TEXT,
+  applied_path TEXT,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
+
 fn migrations() -> &'static [(i64, &'static str)] {
-    &[(1, V1_SQL), (2, V2_SQL)]
+    &[(1, V1_SQL), (2, V2_SQL), (3, V3_SQL)]
 }
 
 pub fn open_and_migrate() -> Result<Connection, String> {

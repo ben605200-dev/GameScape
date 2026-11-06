@@ -289,6 +289,37 @@ export const librarySetPoster = (id: number, dataUrl: string) =>
 export const libraryReadData = (id: number) =>
   runAction<string>("library_read_data", { id });
 
+/* ------------------------------------------------------------------ */
+/* Desktop host                                                        */
+/* ------------------------------------------------------------------ */
+
+export interface HostSurface {
+  monitorIndex: number;
+  kind: string;
+  title: string;
+  paused: boolean;
+}
+
+/** Apply a library item to every monitor (static image or animated media). */
+export const hostApplyMedia = (mediaId: number) =>
+  runAction<string>("host_apply_media", { mediaId });
+
+export const hostStop = () => runAction<void>("host_stop");
+
+export const hostSetPaused = (paused: boolean) =>
+  runAction<void>("host_set_paused", { paused });
+
+export const hostRestorePrevious = () => runAction<void>("host_restore_previous");
+
+export async function hostStatus(): Promise<HostSurface[]> {
+  if (!IN_TAURI) return [];
+  try {
+    return await invoke<HostSurface[]>("host_status");
+  } catch {
+    return [];
+  }
+}
+
 export const collectionsList = () => runAction<CollectionSummary[]>("collections_list");
 
 export const collectionCreate = (name: string) =>
