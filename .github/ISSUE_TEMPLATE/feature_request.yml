@@ -1,0 +1,48 @@
+name: Feature request
+description: Suggest an idea or improvement for GameScape.
+title: "[Feature]: "
+labels: ["type: feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve GameScape! Check the roadmap in `docs/` first —
+        your idea may already be planned (and if it is scheduled later, we will
+        link the roadmap item).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the frustration or gap — not just the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Wallpapers / discovery
+        - Animated wallpapers
+        - Widgets
+        - Layouts / themes
+        - Library / imports
+        - Website / community
+        - Performance
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Mockups, examples, links — please no personal data.

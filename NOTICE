@@ -1,0 +1,20 @@
+GameScape
+Copyright 2026 The GameScape Authors
+
+This product includes software and assets developed by third parties.
+The full dependency attribution list is generated at build time and must be
+refreshed before every public release.
+
+Bundled fonts (planned for the desktop app — all SIL Open Font License 1.1):
+  - Inter            (https://rsms.me/inter/)
+  - JetBrains Mono   (https://www.jetbrains.com/lp/mono/)
+  - Space Grotesk    (https://fonts.google.com/specimen/Space+Grotesk)
+  - Orbitron         (https://fonts.google.com/specimen/Orbitron)
+  - Rajdhani         (https://fonts.google.com/specimen/Rajdhani)
+  - Press Start 2P   (https://fonts.google.com/specimen/Press+Start+2P)
+
+Icon set: Lucide (ISC License) — https://lucide.dev
+
+Full license texts for the above and for all runtime dependencies will be
+included in the application distribution ("Third-party licences" viewer) and
+appended to this file before the first public release.

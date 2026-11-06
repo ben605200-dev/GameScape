@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Enable when the Tauri workspace lands (apps/desktop/src-tauri):
+  # - package-ecosystem: cargo
+  #   directory: /apps/desktop/src-tauri
+  #   schedule:
+  #     interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

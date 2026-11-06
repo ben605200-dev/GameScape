@@ -1,0 +1,24 @@
+{
+  "name": "gamescape",
+  "private": true,
+  "version": "0.0.0",
+  "description": "An all-in-one Windows desktop customisation platform for gamers — animated wallpapers, widgets, and layouts.",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:desktop": "turbo run dev --filter=@gamescape/desktop",
+    "dev:website": "turbo run dev --filter=@gamescape/website",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "privacy:scan": "node scripts/privacy-scan.mjs",
+    "community:check": "node scripts/community-standards-check.mjs"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0"
+  }
+}

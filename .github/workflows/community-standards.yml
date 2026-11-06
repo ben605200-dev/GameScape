@@ -1,0 +1,29 @@
+name: Community standards check
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Mondays 06:00 UTC — catches silent removals/renames.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Community file checks
+    runs-on: ubuntu-latest
+    steps:
+      # NOTE: pin third-party actions by commit SHA during Phase 10 hardening.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run community standards check
+        run: node scripts/community-standards-check.mjs

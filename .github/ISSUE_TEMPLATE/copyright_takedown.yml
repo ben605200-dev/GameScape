@@ -1,0 +1,46 @@
+name: Copyright takedown request
+description: Copyright owners and their authorised agents can request removal of content.
+title: "[Takedown]: "
+labels: ["type: catalogue", "takedown"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This form creates a public issue.** Do not include phone numbers, postal addresses,
+        or personal email addresses here. Provide only what is requested below — the
+        maintainers will open a private channel for anything else.
+
+        Where a work is hosted for GitHub (repository or Releases), GitHub's own
+        DMCA process is also available; see the website's Privacy/Policy pages when published.
+  - type: input
+    id: work
+    attributes:
+      label: The copyrighted work you believe is infringed
+      description: Identify the work (title, author/owner, where it is published if applicable).
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Where it appears in GameScape
+      description: URL or slug of the affected entry.
+    validations:
+      required: true
+  - type: textarea
+    id: basis
+    attributes:
+      label: Why you believe this use is not authorised
+      description: Explain the rights you hold and why GameScape's use is not permitted.
+    validations:
+      required: true
+  - type: checkboxes
+    id: declarations
+    attributes:
+      label: Declarations
+      options:
+        - label: I am the rights holder, or I am authorised to act on the rights holder's behalf.
+          required: true
+        - label: I understand the maintainers may request additional details through a private channel before acting.
+          required: true
+        - label: I understand that deliberately false reports may have consequences under the Code of Conduct.
+          required: true

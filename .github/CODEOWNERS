@@ -1,0 +1,19 @@
+# CODEOWNERS
+# Replace @OWNER with the real GitHub account/team before the repository goes public.
+# Paths listed here require review from the listed owner(s) before merge.
+
+# Default owner for everything not listed below.
+* @OWNER
+
+# Governance, automation and security-relevant paths.
+/.github/ @OWNER
+/scripts/ @OWNER
+/apps/desktop/src-tauri/ @OWNER
+/packages/catalogue/ @OWNER
+/packages/ui/ @OWNER
+/LICENSE @OWNER
+/NOTICE @OWNER
+/SECURITY.md @OWNER
+/CODE_OF_CONDUCT.md @OWNER
+/CONTRIBUTING.md @OWNER
+/SUPPORT.md @OWNER

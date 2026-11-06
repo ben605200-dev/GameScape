@@ -1,0 +1,11 @@
+# GameScape monorepo workspace definition.
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Packages allowed to run install/postinstall scripts.
+# Keep this list minimal and reviewed — everything else is blocked by default.
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - "@tauri-apps/cli"

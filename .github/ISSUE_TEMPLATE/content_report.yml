@@ -1,0 +1,40 @@
+name: Content report
+description: Report a wallpaper or gallery entry that is inappropriate, malicious, or violates rights.
+title: "[Content report]: "
+labels: ["type: catalogue", "report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This report is public.** Do not include personal information or contact details here.
+
+        For copyright complaints, use the **Copyright takedown request** form instead
+        (or the private channel described on the website when published).
+  - type: input
+    id: location
+    attributes:
+      label: Wallpaper or page
+      description: The slug or URL of the affected entry.
+      placeholder: "e.g. neon-alley-night-city"
+    validations:
+      required: true
+  - type: checkboxes
+    id: reason
+    attributes:
+      label: Reason (select all that apply)
+      options:
+        - label: Inappropriate content (sexual, violent, hateful, otherwise against the content policy)
+        - label: Malicious or unsafe file
+        - label: Copyright / rights issue
+        - label: Duplicate of another entry
+        - label: Quality problem
+        - label: Other (explain below)
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What should the maintainers know? Keep it factual and free of personal data.
+    validations:
+      required: true

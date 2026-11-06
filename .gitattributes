@@ -1,0 +1,34 @@
+# Normalize line endings: repository stores LF.
+* text=auto eol=lf
+
+# Windows scripts keep CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets (never diff/merge as text).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.woff2 binary
+*.woff binary
+*.ttf binary
+*.otf binary
+*.mp4 binary
+*.exe binary
+*.msi binary
+*.dll binary
+*.db binary
+*.sqlite binary
+*.bin binary
+
+# Generated / vendor-managed files
+packages/catalogue/index/** linguist-generated=true
+pnpm-lock.yaml linguist-generated=true
+Cargo.lock linguist-generated=true
+
+# Documentation defaults
+*.md text eol=lf
