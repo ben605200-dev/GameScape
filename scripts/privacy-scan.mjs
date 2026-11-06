@@ -57,12 +57,24 @@ const IMAGE_ALLOWED_PREFIXES = [
   "assets/branding/",
   "apps/website/src/assets/",
   "apps/website/public/",
+  "apps/desktop/public/",
+  "apps/desktop/src/assets/",
+  "apps/desktop/src-tauri/icons/",
   "packages/catalogue/thumbnails/",
   "packages/ui/src/assets/",
-  "apps/desktop/src-tauri/icons/",
   "docs/assets/",
   ".github/",
 ];
+
+// TLDs that are really file extensions (avoids false positives such as
+// `128x128@2x.png` in config files).
+const EMAIL_TLD_DENYLIST = new Set([
+  "png", "jpg", "jpeg", "webp", "avif", "ico", "svg", "gif",
+  "css", "js", "mjs", "cjs", "ts", "tsx", "jsx", "rs", "json",
+  "toml", "yml", "yaml", "md", "txt", "xml", "html", "lock",
+  "map", "exe", "dll", "msi", "log", "db", "sqlite", "ps1",
+  "bat", "cmd", "sh",
+]);
 
 const NAME_RULES = [
   {
@@ -124,9 +136,16 @@ const TEXT_RULES = [
   { rule: "token-npm", re: /\bnpm_[A-Za-z0-9]{30,}\b/g },
   {
     rule: "email",
-    // Requires an alphabetic TLD (avoids false positives like `pkg@1.2.3`).
+    // Requires an alphabetic TLD (avoids false positives like `pkg@1.2.3`),
+    // and ignores file-extension "TLDs" (e.g. `128x128@2x.png`).
     re: /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b/g,
-    check: (m) => !ALLOWED_EMAIL_DOMAINS.has(m[0].split("@")[1].toLowerCase()),
+    check: (m) => {
+      const domain = m[0].split("@")[1].toLowerCase();
+      if (ALLOWED_EMAIL_DOMAINS.has(domain)) return false;
+      const tld = domain.split(".").pop();
+      if (EMAIL_TLD_DENYLIST.has(tld)) return false;
+      return true;
+    },
   },
 ];
 

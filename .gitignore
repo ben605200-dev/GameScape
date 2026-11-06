@@ -115,7 +115,7 @@ $RECYCLE.BIN/
 .Trashes
 
 # --- Editors and IDE personal state ---
-.vscode/
+.vscode/*
 !.vscode/extensions.json
 !.vscode/settings.shared.json
 .idea/
