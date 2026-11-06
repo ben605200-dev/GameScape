@@ -25,4 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed: the spike launch gate now recognises the interactive prototype mode.
 - Personal Library **import pipeline** (Phase 3 start): file-picker and drag-and-drop imports for JPG/PNG/WEBP/GIF with magic-byte validation, SHA-256 duplicate detection, decode probing, managed copies in the library folder, JPEG thumbnails, and per-file result reporting (imported / duplicate / unsupported / invalid / corrupted / failed).
 - Library page: real grid with thumbnails served through the Tauri asset protocol, per-item removal, and live import progress rows.
-- Dev automation hooks (`GAMESCAPE_DEV_IMPORT`, `GAMESCAPE_START_HASH`) for local test harnesses — never active in normal use.
+- Dev automation hooks (`GAMESCAPE_DEV_IMPORT`, `GAMESCAPE_DEV_FAVOURITE`, `GAMESCAPE_START_HASH`) for local test harnesses — never active in normal use.
+- Catalogue **search, filters and sorting**: instant search across titles/games/tags; filters for game, media type, orientation and resolution (both derived from dimensions); newest/A-Z sorting; live result count and clear-all.
+- **Favourites**: star toggle on cards and detail pages, persisted in SQLite, with a working Favourites page.
+- Seed catalogue expanded from 5 to 14 fictional entries across 4 games and all three media types — including portrait and ultrawide layouts so filters have real variety.
+- Shared `WallpaperCard` component now used by Wallpapers, Favourites and the Home shelf.

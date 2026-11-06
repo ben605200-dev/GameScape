@@ -134,9 +134,64 @@ fn library_remove(
     library::remove_from_library(state.inner(), id, delete_files)
 }
 
+#[tauri::command]
+fn favourites_list(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    let mut statement = conn
+        .prepare("SELECT catalogue_id FROM favourites ORDER BY added_at DESC")
+        .map_err(|e| format!("cannot query favourites: {e}"))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("cannot query favourites: {e}"))?;
+    let mut ids = Vec::new();
+    for row in rows {
+        ids.push(row.map_err(|e| format!("cannot read a favourite row: {e}"))?);
+    }
+    Ok(ids)
+}
+
+#[tauri::command]
+fn favourite_set(
+    state: tauri::State<'_, AppState>,
+    catalogue_id: String,
+    favourite: bool,
+) -> Result<(), String> {
+    let valid = !catalogue_id.is_empty()
+        && catalogue_id.len() <= 120
+        && catalogue_id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !valid {
+        return Err("invalid catalogue id".to_string());
+    }
+
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    if favourite {
+        conn.execute(
+            "INSERT OR IGNORE INTO favourites (catalogue_id) VALUES (?1)",
+            [&catalogue_id],
+        )
+        .map_err(|e| format!("cannot save favourite: {e}"))?;
+    } else {
+        conn.execute(
+            "DELETE FROM favourites WHERE catalogue_id = ?1",
+            [&catalogue_id],
+        )
+        .map_err(|e| format!("cannot remove favourite: {e}"))?;
+    }
+    Ok(())
+}
+
 /// Dev-only automation hooks used by local harnesses (never set in normal
-/// use): `GAMESCAPE_DEV_IMPORT` imports a `;`-separated list at startup and
-/// `GAMESCAPE_START_HASH` deep-links the main window after load.
+/// use): `GAMESCAPE_DEV_IMPORT` imports a `;`-separated list at startup,
+/// `GAMESCAPE_DEV_FAVOURITE` seeds favourites, and `GAMESCAPE_START_HASH`
+/// deep-links the main window after load.
 fn dev_automation(handle: tauri::AppHandle) {
     use std::io::Write as _;
 
@@ -197,6 +252,46 @@ fn dev_automation(handle: tauri::AppHandle) {
         }
     }
 
+    if let Ok(spec) = std::env::var("GAMESCAPE_DEV_FAVOURITE") {
+        let ids: Vec<String> = spec
+            .split(';')
+            .map(|part| part.trim().to_string())
+            .filter(|part| !part.is_empty())
+            .collect();
+        if !ids.is_empty() {
+            let state = handle.state::<AppState>();
+            if let Ok(conn) = state.db.lock() {
+                let mut count = 0usize;
+                for id in &ids {
+                    let valid = id
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+                    if valid
+                        && conn
+                            .execute(
+                                "INSERT OR IGNORE INTO favourites (catalogue_id) VALUES (?1)",
+                                [id],
+                            )
+                            .is_ok()
+                    {
+                        count += 1;
+                    }
+                }
+                let line = format!("FAVOURITES_SEEDED {count}");
+                println!("[dev-fav] {line}");
+                if let Ok(path) = std::env::var("GAMESCAPE_SPIKE_OUT") {
+                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                    {
+                        let _ = writeln!(file, "{line}");
+                    }
+                }
+            }
+        }
+    }
+
     if let Ok(hash) = std::env::var("GAMESCAPE_START_HASH") {
         let safe: String = hash
             .chars()
@@ -251,7 +346,9 @@ pub fn run() {
             catalogue_load,
             import_paths,
             library_list,
-            library_remove
+            library_remove,
+            favourites_list,
+            favourite_set
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

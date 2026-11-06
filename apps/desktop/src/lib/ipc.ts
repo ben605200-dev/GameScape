@@ -199,3 +199,29 @@ export function assetUrl(path: string | null | undefined): string {
   if (!path || !IN_TAURI) return "";
   return convertFileSrc(path);
 }
+
+/* ------------------------------------------------------------------ */
+/* Favourites                                                          */
+/* ------------------------------------------------------------------ */
+
+export async function listFavourites(): Promise<string[] | null> {
+  if (!IN_TAURI) return null;
+  try {
+    return await invoke<string[]>("favourites_list");
+  } catch {
+    return null;
+  }
+}
+
+export async function setFavourite(
+  catalogueId: string,
+  favourite: boolean,
+): Promise<boolean> {
+  if (!IN_TAURI) return false;
+  try {
+    await invoke("favourite_set", { catalogueId, favourite });
+    return true;
+  } catch {
+    return false;
+  }
+}

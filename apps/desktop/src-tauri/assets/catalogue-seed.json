@@ -11,21 +11,9 @@
       "tags": ["cyberpunk", "city", "neon", "night"],
       "resolution": { "width": 3840, "height": 2160 },
       "licenceId": "GAMESCAPE-ORIGINAL",
-      "addedAt": "2026-11-01",
+      "addedAt": "2026-11-07",
       "placeholder": { "dominantHex": "#7C5CFF", "accentHex": "#22D3EE" },
       "interactive": true
-    },
-    {
-      "id": "drift-horizon",
-      "title": "Drift Horizon",
-      "description": "Sunset run across open desert — warm light, long shadows.",
-      "mediaType": "mp4",
-      "game": "Apex Circuit",
-      "tags": ["racing", "sunset", "desert"],
-      "resolution": { "width": 2560, "height": 1440 },
-      "licenceId": "GAMESCAPE-ORIGINAL",
-      "addedAt": "2026-11-02",
-      "placeholder": { "dominantHex": "#F97316", "accentHex": "#7C5CFF" }
     },
     {
       "id": "aurora-calm",
@@ -36,7 +24,7 @@
       "tags": ["nature", "aurora", "night"],
       "resolution": { "width": 3840, "height": 2160 },
       "licenceId": "CC0-1.0",
-      "addedAt": "2026-11-03",
+      "addedAt": "2026-11-06",
       "placeholder": { "dominantHex": "#10B981", "accentHex": "#22D3EE" }
     },
     {
@@ -48,9 +36,70 @@
       "tags": ["retro", "pixel", "arcade"],
       "resolution": { "width": 1920, "height": 1080 },
       "licenceId": "GAMESCAPE-ORIGINAL",
-      "addedAt": "2026-11-04",
+      "addedAt": "2026-11-05",
       "placeholder": { "dominantHex": "#F472B6", "accentHex": "#7C5CFF" },
       "interactive": true
+    },
+    {
+      "id": "tokyo-overpass",
+      "title": "Tokyo Overpass",
+      "description": "Elevated highway at midnight — long exposures and light trails.",
+      "mediaType": "static",
+      "game": "Cyber Drift 2099",
+      "tags": ["city", "japan", "night", "lights"],
+      "resolution": { "width": 3840, "height": 2160 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-11-04",
+      "placeholder": { "dominantHex": "#4C8DFF", "accentHex": "#F472B6" },
+      "interactive": true
+    },
+    {
+      "id": "canyon-run",
+      "title": "Canyon Run",
+      "description": "Low pass through red rock at speed — dust trails and heat haze.",
+      "mediaType": "mp4",
+      "game": "Apex Circuit",
+      "tags": ["racing", "canyon", "speed"],
+      "resolution": { "width": 3840, "height": 2160 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-11-03",
+      "placeholder": { "dominantHex": "#F97316", "accentHex": "#B45309" }
+    },
+    {
+      "id": "ember-camp",
+      "title": "Ember Camp",
+      "description": "Campfire embers drifting under a dark fantasy skyline.",
+      "mediaType": "static",
+      "game": "Emberfall",
+      "tags": ["fantasy", "fire", "night"],
+      "resolution": { "width": 1920, "height": 1080 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-11-02",
+      "placeholder": { "dominantHex": "#DC2626", "accentHex": "#FBBF24" }
+    },
+    {
+      "id": "neon-district",
+      "title": "Neon District",
+      "description": "Dense shopping district, wet streets, endless signage.",
+      "mediaType": "static",
+      "game": "Cyber Drift 2099",
+      "tags": ["cyberpunk", "city", "rain"],
+      "resolution": { "width": 2560, "height": 1440 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-11-01",
+      "placeholder": { "dominantHex": "#7C5CFF", "accentHex": "#F472B6" }
+    },
+    {
+      "id": "drift-horizon",
+      "title": "Drift Horizon",
+      "description": "Sunset run across open desert — warm light, long shadows.",
+      "mediaType": "mp4",
+      "game": "Apex Circuit",
+      "tags": ["racing", "sunset", "desert"],
+      "resolution": { "width": 2560, "height": 1440 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-10-31",
+      "placeholder": { "dominantHex": "#F97316", "accentHex": "#7C5CFF" }
     },
     {
       "id": "orbit-station",
@@ -61,8 +110,68 @@
       "tags": ["space", "station", "sci-fi"],
       "resolution": { "width": 3840, "height": 2160 },
       "licenceId": "GAMESCAPE-ORIGINAL",
-      "addedAt": "2026-11-05",
+      "addedAt": "2026-10-30",
       "placeholder": { "dominantHex": "#4C8DFF", "accentHex": "#7C5CFF" }
+    },
+    {
+      "id": "glacier-fall",
+      "title": "Glacier Fall",
+      "description": "Vertical waterfall frozen mid-cascade — portrait GIF loop.",
+      "mediaType": "gif",
+      "game": null,
+      "tags": ["nature", "ice", "waterfall"],
+      "resolution": { "width": 1440, "height": 2560 },
+      "licenceId": "CC0-1.0",
+      "addedAt": "2026-10-29",
+      "placeholder": { "dominantHex": "#22D3EE", "accentHex": "#4C8DFF" }
+    },
+    {
+      "id": "vigil-tower",
+      "title": "Vigil Tower",
+      "description": "Storm-lit watchtower on the edge of the wastes — ultrawide.",
+      "mediaType": "static",
+      "game": "Emberfall",
+      "tags": ["fantasy", "tower", "storm"],
+      "resolution": { "width": 3440, "height": 1440 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-10-28",
+      "placeholder": { "dominantHex": "#6D4AFF", "accentHex": "#22D3EE" }
+    },
+    {
+      "id": "retro-sunrise",
+      "title": "Retro Sunrise",
+      "description": "Pixel sun rising over a chrome grid — animated loop.",
+      "mediaType": "gif",
+      "game": "Retro Arena",
+      "tags": ["retro", "pixel", "sunrise"],
+      "resolution": { "width": 1920, "height": 1080 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-10-27",
+      "placeholder": { "dominantHex": "#FBBF24", "accentHex": "#F472B6" }
+    },
+    {
+      "id": "deep-field",
+      "title": "Deep Field",
+      "description": "Galaxy clusters in long exposure — ultrawide starfield.",
+      "mediaType": "static",
+      "game": "Stellar Frontier",
+      "tags": ["space", "stars", "galaxies"],
+      "resolution": { "width": 5120, "height": 1440 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-10-26",
+      "placeholder": { "dominantHex": "#1E3A8A", "accentHex": "#7C5CFF" }
+    },
+    {
+      "id": "shadow-fall",
+      "title": "Shadow Fall",
+      "description": "Dark waterfall beneath drifting embers — cinematic loop.",
+      "mediaType": "mp4",
+      "game": "Emberfall",
+      "tags": ["fantasy", "waterfall", "dark"],
+      "resolution": { "width": 1920, "height": 1080 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-10-25",
+      "placeholder": { "dominantHex": "#111827", "accentHex": "#DC2626" }
     }
   ]
 }

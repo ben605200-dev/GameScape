@@ -1,30 +1,47 @@
-import { useEffect, useState } from "react";
-import { Image } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Image, Search } from "lucide-react";
 import { EmptyState } from "../components/EmptyState";
+import { WallpaperCard } from "../components/WallpaperCard";
+import {
+  DEFAULT_CATALOGUE_FILTERS,
+  filterCatalogue,
+  gamesOf,
+  hasActiveFilters,
+  type CatalogueFilters,
+} from "../lib/catalogue";
 import { loadCatalogue, type CatalogueIndex } from "../lib/ipc";
-
-const MEDIA_LABELS: Record<string, string> = {
-  static: "Static",
-  gif: "GIF",
-  mp4: "MP4",
-};
 
 export function WallpapersPage() {
   const [catalogue, setCatalogue] = useState<CatalogueIndex | null>(null);
   const [checked, setChecked] = useState(false);
+  const [filters, setFilters] = useState<CatalogueFilters>(
+    DEFAULT_CATALOGUE_FILTERS,
+  );
 
   useEffect(() => {
     let cancelled = false;
-    void loadCatalogue().then((c) => {
+    void loadCatalogue().then((result) => {
       if (cancelled) return;
-      setCatalogue(c);
+      setCatalogue(result);
       setChecked(true);
     });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const games = useMemo(
+    () => (catalogue ? gamesOf(catalogue.entries) : []),
+    [catalogue],
+  );
+  const visible = useMemo(
+    () => (catalogue ? filterCatalogue(catalogue.entries, filters) : []),
+    [catalogue, filters],
+  );
+  const active = hasActiveFilters(filters);
+
+  const update = (patch: Partial<CatalogueFilters>) =>
+    setFilters((previous) => ({ ...previous, ...patch }));
 
   if (!checked) {
     return (
@@ -53,50 +70,125 @@ export function WallpapersPage() {
           Seed catalogue · v{catalogue.schemaVersion}
         </span>
         <span className="muted">
-          Preview data — search and downloads arrive in Phase 3. Click a card for
-          details.
+          Search and filters are live; downloads arrive with the hosting phase.
         </span>
       </div>
 
-      <div className="card-grid">
-        {catalogue.entries.map((entry) => (
-          <Link
-            key={entry.id}
-            to={`/wallpapers/${entry.id}`}
-            className="card media-card media-card-link"
+      <div className="toolbar card">
+        <label className="search-field">
+          <Search size={15} aria-hidden="true" />
+          <input
+            type="search"
+            value={filters.query}
+            placeholder="Search wallpapers, games, tags…"
+            aria-label="Search catalogue"
+            onChange={(event) => update({ query: event.target.value })}
+          />
+        </label>
+
+        <select
+          aria-label="Filter by game"
+          value={filters.game}
+          onChange={(event) => update({ game: event.target.value })}
+        >
+          <option value="all">All games</option>
+          {games.map((game) => (
+            <option key={game} value={game}>
+              {game}
+            </option>
+          ))}
+        </select>
+
+        <select
+          aria-label="Filter by type"
+          value={filters.mediaType}
+          onChange={(event) =>
+            update({ mediaType: event.target.value as CatalogueFilters["mediaType"] })
+          }
+        >
+          <option value="all">All types</option>
+          <option value="static">Static</option>
+          <option value="gif">GIF</option>
+          <option value="mp4">MP4</option>
+        </select>
+
+        <select
+          aria-label="Filter by orientation"
+          value={filters.orientation}
+          onChange={(event) =>
+            update({
+              orientation: event.target.value as CatalogueFilters["orientation"],
+            })
+          }
+        >
+          <option value="all">All shapes</option>
+          <option value="landscape">Landscape</option>
+          <option value="portrait">Portrait</option>
+          <option value="ultrawide">Ultrawide</option>
+        </select>
+
+        <select
+          aria-label="Filter by resolution"
+          value={filters.resolution}
+          onChange={(event) =>
+            update({
+              resolution: event.target.value as CatalogueFilters["resolution"],
+            })
+          }
+        >
+          <option value="all">All resolutions</option>
+          <option value="1080p">1080p</option>
+          <option value="1440p">1440p</option>
+          <option value="4k">4K</option>
+        </select>
+
+        <select
+          aria-label="Sort"
+          value={filters.sort}
+          onChange={(event) =>
+            update({ sort: event.target.value as CatalogueFilters["sort"] })
+          }
+        >
+          <option value="newest">Newest first</option>
+          <option value="alpha">A → Z</option>
+        </select>
+
+        <span className="muted toolbar-count">
+          {visible.length} of {catalogue.entries.length}
+        </span>
+
+        {active && (
+          <button
+            type="button"
+            className="button"
+            onClick={() => setFilters(DEFAULT_CATALOGUE_FILTERS)}
           >
-            <div
-              className="gradient-thumb"
-              style={{
-                background: `linear-gradient(135deg, ${entry.placeholder.dominantHex} 0%, ${entry.placeholder.accentHex} 100%)`,
-              }}
-              aria-hidden="true"
-            />
-            <div className="media-title">{entry.title}</div>
-            {entry.description && (
-              <div className="muted" style={{ fontSize: 13 }}>
-                {entry.description}
-              </div>
-            )}
-            <div className="media-meta">
-              <span>{entry.game ?? "GameScape Original"}</span>
-              <span className="chip">
-                {MEDIA_LABELS[entry.mediaType] ?? entry.mediaType}
-              </span>
-            </div>
-            <div className="media-meta">
-              <span className="mono">
-                {entry.resolution.width}×{entry.resolution.height}
-              </span>
-              {entry.interactive ? (
-                <span className="chip chip-accent">Interactive</span>
-              ) : (
-                <span className="muted">{entry.licenceId}</span>
-              )}
-            </div>
-          </Link>
-        ))}
+            Clear
+          </button>
+        )}
       </div>
+
+      {visible.length === 0 ? (
+        <EmptyState
+          icon={Image}
+          title="No wallpapers match"
+          description="Try removing a filter or searching for something else."
+        >
+          <button
+            type="button"
+            className="button"
+            onClick={() => setFilters(DEFAULT_CATALOGUE_FILTERS)}
+          >
+            Clear filters
+          </button>
+        </EmptyState>
+      ) : (
+        <div className="card-grid">
+          {visible.map((entry) => (
+            <WallpaperCard key={entry.id} entry={entry} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

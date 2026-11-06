@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Database, Image, Layers, Monitor, Sparkles } from "lucide-react";
-import { Link } from "react-router-dom";
+import { WallpaperCard } from "../components/WallpaperCard";
 import {
   getDbHealth,
   IN_TAURI,
@@ -8,12 +8,6 @@ import {
   type CatalogueIndex,
   type DbHealth,
 } from "../lib/ipc";
-
-const MEDIA_LABELS: Record<string, string> = {
-  static: "Static",
-  gif: "GIF",
-  mp4: "MP4",
-};
 
 export function HomePage() {
   const [health, setHealth] = useState<DbHealth | null>(null);
@@ -108,24 +102,7 @@ export function HomePage() {
           </div>
           <div className="card-grid">
             {featured.map((entry) => (
-              <Link
-                key={entry.id}
-                to={`/wallpapers/${entry.id}`}
-                className="card media-card media-card-link"
-              >
-                <div
-                  className="gradient-thumb"
-                  style={{
-                    background: `linear-gradient(135deg, ${entry.placeholder.dominantHex} 0%, ${entry.placeholder.accentHex} 100%)`,
-                  }}
-                  aria-hidden="true"
-                />
-                <div className="media-title">{entry.title}</div>
-                <div className="media-meta">
-                  <span>{entry.game ?? "GameScape Original"}</span>
-                  <span className="chip">{MEDIA_LABELS[entry.mediaType] ?? entry.mediaType}</span>
-                </div>
-              </Link>
+              <WallpaperCard key={entry.id} entry={entry} />
             ))}
           </div>
         </div>

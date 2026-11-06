@@ -10,12 +10,14 @@ import { SettingsPage } from "../pages/SettingsPage";
 import { WallpaperDetailPage } from "../pages/WallpaperDetailPage";
 import { WallpapersPage } from "../pages/WallpapersPage";
 import { WidgetsPage } from "../pages/WidgetsPage";
+import { FavouritesProvider } from "./FavouritesProvider";
 import { ThemeProvider } from "./ThemeProvider";
 
 export function App() {
   return (
     <ThemeProvider>
-      <HashRouter>
+      <FavouritesProvider>
+        <HashRouter>
         <Routes>
           <Route element={<Shell />}>
             <Route path="/" element={<HomePage />} />
@@ -31,7 +33,8 @@ export function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
-      </HashRouter>
+        </HashRouter>
+      </FavouritesProvider>
     </ThemeProvider>
   );
 }

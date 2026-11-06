@@ -532,3 +532,75 @@ button {
   gap: var(--gs-space-3);
   flex-wrap: wrap;
 }
+
+/* ---------------------------------------------------------------------
+ * Catalogue toolbar, card stars
+ * ------------------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--gs-space-3);
+  flex-wrap: wrap;
+  padding: var(--gs-space-3) var(--gs-space-4);
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 220px;
+  max-width: 340px;
+  padding: 6px 10px;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border-subtle);
+  background: var(--gs-bg-raised);
+  color: var(--gs-text-muted);
+}
+
+.search-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--gs-text-primary);
+  font: inherit;
+}
+
+.search-field input::placeholder {
+  color: var(--gs-text-muted);
+}
+
+.toolbar select {
+  padding: 7px 10px;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--gs-border-subtle);
+  background: var(--gs-bg-raised);
+  color: var(--gs-text-primary);
+  font: inherit;
+}
+
+.toolbar-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.card-thumb-wrap {
+  position: relative;
+}
+
+.card-star {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(10, 12, 17, 0.62);
+}
+
+[data-theme="light"] .card-star {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.card-star.is-active {
+  color: var(--gs-state-warning);
+}

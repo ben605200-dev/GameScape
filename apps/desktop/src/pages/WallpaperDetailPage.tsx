@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, Sparkles } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import { FavouriteButton } from "../components/FavouriteButton";
 import { InteractivePreview } from "../components/InteractivePreview";
 import { loadCatalogue, type CatalogueEntry } from "../lib/ipc";
 
@@ -94,7 +95,10 @@ export function WallpaperDetailPage() {
         </div>
 
         <div className="card stack">
-          <h2 style={{ fontSize: 18 }}>{entry.title}</h2>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <h2 style={{ fontSize: 18 }}>{entry.title}</h2>
+            <FavouriteButton id={entry.id} />
+          </div>
           {entry.description && <p className="muted">{entry.description}</p>}
 
           <dl className="meta-list">
