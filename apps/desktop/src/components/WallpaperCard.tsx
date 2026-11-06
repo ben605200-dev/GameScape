@@ -1,5 +1,6 @@
+import { Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
-import { MEDIA_LABELS } from "../lib/catalogue";
+import { effectStyleOf, MEDIA_LABELS } from "../lib/catalogue";
 import type { CatalogueEntry } from "../lib/ipc";
 import { FavouriteButton } from "./FavouriteButton";
 
@@ -34,8 +35,10 @@ export function WallpaperCard({ entry }: { entry: CatalogueEntry }) {
         <span className="mono">
           {entry.resolution.width}×{entry.resolution.height}
         </span>
-        {entry.interactive ? (
-          <span className="chip chip-accent">Interactive</span>
+        {entry.interactive !== false ? (
+          <span className="chip chip-accent">
+            <Sparkles size={12} aria-hidden="true" /> {effectStyleOf(entry)}
+          </span>
         ) : (
           <span className="muted">{entry.licenceId}</span>
         )}

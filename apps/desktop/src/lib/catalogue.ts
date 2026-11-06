@@ -12,6 +12,21 @@ export const MEDIA_LABELS: Record<string, string> = {
   mp4: "MP4",
 };
 
+export const EFFECT_STYLES = ["orbit", "ribbon", "grid"] as const;
+
+/** Deterministic fallback so every wallpaper gets a fitting effect. */
+export function defaultEffectStyle(id: string): string {
+  let hash = 0;
+  for (const char of id) {
+    hash = (hash * 31 + char.charCodeAt(0)) % 997;
+  }
+  return EFFECT_STYLES[hash % EFFECT_STYLES.length];
+}
+
+export function effectStyleOf(entry: CatalogueEntry): string {
+  return entry.effect?.style ?? defaultEffectStyle(entry.id);
+}
+
 export type Orientation = "landscape" | "portrait" | "ultrawide";
 export type ResolutionBucket = "1080p" | "1440p" | "4k";
 export type SortOrder = "newest" | "alpha";

@@ -26,7 +26,9 @@
       "resolution": { "width": 3840, "height": 2160 },
       "licenceId": "CC0-1.0",
       "addedAt": "2026-11-06",
-      "placeholder": { "dominantHex": "#10B981", "accentHex": "#22D3EE" }
+      "placeholder": { "dominantHex": "#10B981", "accentHex": "#22D3EE" },
+      "interactive": true,
+      "effect": { "style": "ribbon" }
     },
     {
       "id": "pixel-rush",
@@ -66,7 +68,9 @@
       "resolution": { "width": 3840, "height": 2160 },
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-11-03",
-      "placeholder": { "dominantHex": "#F97316", "accentHex": "#B45309" }
+      "placeholder": { "dominantHex": "#F97316", "accentHex": "#B45309" },
+      "interactive": true,
+      "effect": { "style": "orbit" }
     },
     {
       "id": "ember-camp",
@@ -78,7 +82,9 @@
       "resolution": { "width": 1920, "height": 1080 },
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-11-02",
-      "placeholder": { "dominantHex": "#DC2626", "accentHex": "#FBBF24" }
+      "placeholder": { "dominantHex": "#DC2626", "accentHex": "#FBBF24" },
+      "interactive": true,
+      "effect": { "style": "orbit" }
     },
     {
       "id": "neon-district",
@@ -90,7 +96,9 @@
       "resolution": { "width": 2560, "height": 1440 },
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-11-01",
-      "placeholder": { "dominantHex": "#7C5CFF", "accentHex": "#F472B6" }
+      "placeholder": { "dominantHex": "#7C5CFF", "accentHex": "#F472B6" },
+      "interactive": true,
+      "effect": { "style": "grid" }
     },
     {
       "id": "drift-horizon",
@@ -102,7 +110,9 @@
       "resolution": { "width": 2560, "height": 1440 },
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-10-31",
-      "placeholder": { "dominantHex": "#F97316", "accentHex": "#7C5CFF" }
+      "placeholder": { "dominantHex": "#F97316", "accentHex": "#7C5CFF" },
+      "interactive": true,
+      "effect": { "style": "ribbon" }
     },
     {
       "id": "orbit-station",
@@ -114,7 +124,9 @@
       "resolution": { "width": 3840, "height": 2160 },
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-10-30",
-      "placeholder": { "dominantHex": "#4C8DFF", "accentHex": "#7C5CFF" }
+      "placeholder": { "dominantHex": "#4C8DFF", "accentHex": "#7C5CFF" },
+      "interactive": true,
+      "effect": { "style": "orbit" }
     },
     {
       "id": "glacier-fall",
@@ -126,7 +138,9 @@
       "resolution": { "width": 1440, "height": 2560 },
       "licenceId": "CC0-1.0",
       "addedAt": "2026-10-29",
-      "placeholder": { "dominantHex": "#22D3EE", "accentHex": "#4C8DFF" }
+      "placeholder": { "dominantHex": "#22D3EE", "accentHex": "#4C8DFF" },
+      "interactive": true,
+      "effect": { "style": "ribbon" }
     },
     {
       "id": "vigil-tower",
@@ -138,7 +152,9 @@
       "resolution": { "width": 3440, "height": 1440 },
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-10-28",
-      "placeholder": { "dominantHex": "#6D4AFF", "accentHex": "#22D3EE" }
+      "placeholder": { "dominantHex": "#6D4AFF", "accentHex": "#22D3EE" },
+      "interactive": true,
+      "effect": { "style": "grid" }
     },
     {
       "id": "retro-sunrise",
@@ -150,7 +166,9 @@
       "resolution": { "width": 1920, "height": 1080 },
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-10-27",
-      "placeholder": { "dominantHex": "#FBBF24", "accentHex": "#F472B6" }
+      "placeholder": { "dominantHex": "#FBBF24", "accentHex": "#F472B6" },
+      "interactive": true,
+      "effect": { "style": "grid" }
     },
     {
       "id": "deep-field",
@@ -162,7 +180,9 @@
       "resolution": { "width": 5120, "height": 1440 },
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-10-26",
-      "placeholder": { "dominantHex": "#1E3A8A", "accentHex": "#7C5CFF" }
+      "placeholder": { "dominantHex": "#1E3A8A", "accentHex": "#7C5CFF" },
+      "interactive": true,
+      "effect": { "style": "orbit" }
     },
     {
       "id": "shadow-fall",
@@ -174,7 +194,9 @@
       "resolution": { "width": 1920, "height": 1080 },
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-10-25",
-      "placeholder": { "dominantHex": "#111827", "accentHex": "#DC2626" }
+      "placeholder": { "dominantHex": "#111827", "accentHex": "#DC2626" },
+      "interactive": true,
+      "effect": { "style": "ribbon" }
     }
   ]
 }

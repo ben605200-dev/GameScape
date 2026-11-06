@@ -3,6 +3,7 @@ import { ArrowLeft, Sparkles } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { FavouriteButton } from "../components/FavouriteButton";
 import { InteractivePreview } from "../components/InteractivePreview";
+import { effectStyleOf } from "../lib/catalogue";
 import { loadCatalogue, type CatalogueEntry } from "../lib/ipc";
 
 const MEDIA_LABELS: Record<string, string> = {
@@ -60,20 +61,18 @@ export function WallpaperDetailPage() {
         <Link className="button" to="/wallpapers">
           <ArrowLeft size={16} aria-hidden="true" /> Wallpapers
         </Link>
-        {entry.interactive && (
-          <span className="chip chip-accent">
-            <Sparkles size={13} aria-hidden="true" /> Interactive preview
-          </span>
-        )}
+        <span className="chip chip-accent">
+          <Sparkles size={13} aria-hidden="true" /> Interactive · {effectStyleOf(entry)}
+        </span>
       </div>
 
       <div className="detail-grid">
         <div className="card stack">
-          {entry.interactive ? (
+          {entry.interactive !== false ? (
             <>
               <InteractivePreview
                 className="preview-canvas"
-                effectName={entry.effect?.style ?? "orbit"}
+                effectName={effectStyleOf(entry)}
                 dominant={entry.placeholder.dominantHex}
                 accent={entry.placeholder.accentHex}
               />
