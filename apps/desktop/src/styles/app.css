@@ -68,10 +68,15 @@ button {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Grid items default to min-height: auto, which grows the row to content
+     height and silently kills inner scrolling (overflow: hidden on the
+     shell clips it). */
+  min-height: 0;
 }
 
 .app-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--gs-space-6) var(--gs-space-8) var(--gs-space-12);
 }
@@ -106,6 +111,9 @@ button {
   border-right: 1px solid var(--gs-border-subtle);
   padding: var(--gs-space-4) var(--gs-space-3);
   gap: var(--gs-space-4);
+  /* Short windows: the nav scrolls instead of clipping. */
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .sidebar-brand {

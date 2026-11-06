@@ -190,8 +190,9 @@ fn favourite_set(
 
 /// Dev-only automation hooks used by local harnesses (never set in normal
 /// use): `GAMESCAPE_DEV_IMPORT` imports a `;`-separated list at startup,
-/// `GAMESCAPE_DEV_FAVOURITE` seeds favourites, and `GAMESCAPE_START_HASH`
-/// deep-links the main window after load.
+/// `GAMESCAPE_DEV_FAVOURITE` seeds favourites, `GAMESCAPE_START_HASH`
+/// deep-links the main window after load, and `GAMESCAPE_DEV_SCRIPT` runs a
+/// single verification script once the window has settled.
 fn dev_automation(handle: tauri::AppHandle) {
     use std::io::Write as _;
 
@@ -298,10 +299,36 @@ fn dev_automation(handle: tauri::AppHandle) {
             .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_'))
             .collect();
         if !safe.is_empty() {
+            let thread_handle = handle.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(6));
-                if let Some(window) = handle.get_webview_window("main") {
+                if let Some(window) = thread_handle.get_webview_window("main") {
                     let _ = window.eval(&format!("window.location.hash = '#/{safe}';"));
+                }
+            });
+        }
+    }
+
+    // Arbitrary dev script (env-gated, for local verification harnesses only):
+    // runs once after the window has settled.
+    if let Ok(script) = std::env::var("GAMESCAPE_DEV_SCRIPT") {
+        if !script.is_empty() {
+            let script_handle = handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(8));
+                if let Some(window) = script_handle.get_webview_window("main") {
+                    let _ = window.eval(&script);
+                }
+                println!("[dev-script] DEV_SCRIPT_RUN");
+                if let Ok(path) = std::env::var("GAMESCAPE_SPIKE_OUT") {
+                    use std::io::Write as _;
+                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                    {
+                        let _ = writeln!(file, "DEV_SCRIPT_RUN");
+                    }
                 }
             });
         }

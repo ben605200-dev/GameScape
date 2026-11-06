@@ -31,3 +31,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Seed catalogue expanded from 5 to 14 fictional entries across 4 games and all three media types — including portrait and ultrawide layouts so filters have real variety.
 - Shared `WallpaperCard` component now used by Wallpapers, Favourites and the Home shelf.
 - Interactive previews are now **per-wallpaper**: an `effect` descriptor (`orbit` / `ribbon` / `grid`) rides in the catalogue schema (validated in the Rust model) and each effect renders tinted with the wallpaper's own placeholder palette. Fixes a gap where every interactive preview rendered the same hardcoded effect.
+- **Fixed: the content area could not scroll** — tall pages (e.g. the wallpapers grid) were clipped with no scrollbar. Root cause: a flex/grid `min-height: auto` trap where the main column grew to content height instead of staying viewport-bound. The layout chain now sets `min-height: 0`; the sidebar also scrolls in short windows. Verified in-window with a scrolled capture.
+- Dev hook `GAMESCAPE_DEV_SCRIPT` for window-state verification harnesses — never active in normal use.
