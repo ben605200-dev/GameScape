@@ -49,13 +49,47 @@ pub struct ImportSummary {
 pub struct LibraryItem {
     pub id: i64,
     pub title: String,
+    pub description: Option<String>,
+    /// JSON array string of tags (parsed by the UI).
+    pub tags: Option<String>,
     pub format: Option<String>,
     pub width: Option<i64>,
     pub height: Option<i64>,
     pub bytes: Option<i64>,
+    pub sha256: Option<String>,
     pub thumb_path: Option<String>,
     pub file_path: Option<String>,
     pub added_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionSummary {
+    pub id: i64,
+    pub name: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionMembership {
+    pub collection_id: i64,
+    pub media_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntegrityIssue {
+    pub id: i64,
+    pub title: String,
+    /// missing | changed
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryInfo {
+    pub library_dir: String,
 }
 
 /* ------------------------------------------------------------------ */
@@ -318,7 +352,7 @@ pub fn list_library(state: &AppState) -> Result<Vec<LibraryItem>, String> {
 
     let mut statement = conn
         .prepare(
-            "SELECT id, title, format, width, height, bytes, thumb_path, path, created_at
+            "SELECT id, title, description, tags, format, width, height, bytes, sha256, thumb_path, path, created_at
              FROM media ORDER BY id DESC",
         )
         .map_err(|e| format!("cannot query the library: {e}"))?;
@@ -328,13 +362,16 @@ pub fn list_library(state: &AppState) -> Result<Vec<LibraryItem>, String> {
             Ok(LibraryItem {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                format: row.get(2)?,
-                width: row.get(3)?,
-                height: row.get(4)?,
-                bytes: row.get(5)?,
-                thumb_path: row.get(6)?,
-                file_path: row.get(7)?,
-                added_at: row.get(8)?,
+                description: row.get(2)?,
+                tags: row.get(3)?,
+                format: row.get(4)?,
+                width: row.get(5)?,
+                height: row.get(6)?,
+                bytes: row.get(7)?,
+                sha256: row.get(8)?,
+                thumb_path: row.get(9)?,
+                file_path: row.get(10)?,
+                added_at: row.get(11)?,
             })
         })
         .map_err(|e| format!("cannot query the library: {e}"))?;
@@ -344,6 +381,389 @@ pub fn list_library(state: &AppState) -> Result<Vec<LibraryItem>, String> {
         items.push(row.map_err(|e| format!("cannot read a library row: {e}"))?);
     }
     Ok(items)
+}
+
+/* ------------------------------------------------------------------ */
+/* Metadata editing                                                    */
+/* ------------------------------------------------------------------ */
+
+pub fn update_metadata(
+    state: &AppState,
+    id: i64,
+    title: &str,
+    description: &str,
+    tags: &[String],
+) -> Result<(), String> {
+    let title = title.trim();
+    if title.is_empty() || title.len() > 120 {
+        return Err("title must be 1–120 characters".to_string());
+    }
+    let description = description.trim();
+    if description.len() > 500 {
+        return Err("description is limited to 500 characters".to_string());
+    }
+
+    let mut clean_tags: Vec<String> = Vec::new();
+    for tag in tags {
+        let cleaned = tag.trim().to_lowercase();
+        if cleaned.is_empty() {
+            continue;
+        }
+        if cleaned.len() > 32 {
+            return Err("each tag is limited to 32 characters".to_string());
+        }
+        if !clean_tags.contains(&cleaned) {
+            clean_tags.push(cleaned);
+        }
+        if clean_tags.len() > 20 {
+            return Err("at most 20 tags are allowed".to_string());
+        }
+    }
+
+    let tags_json = serde_json::to_string(&clean_tags).map_err(|e| e.to_string())?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    let updated = conn
+        .execute(
+            "UPDATE media SET title = ?1, description = ?2, tags = ?3 WHERE id = ?4",
+            rusqlite::params![
+                title,
+                if description.is_empty() {
+                    None
+                } else {
+                    Some(description)
+                },
+                tags_json,
+                id
+            ],
+        )
+        .map_err(|e| format!("cannot update the entry: {e}"))?;
+    if updated == 0 {
+        return Err("library item not found".to_string());
+    }
+    Ok(())
+}
+
+/* ------------------------------------------------------------------ */
+/* Collections                                                         */
+/* ------------------------------------------------------------------ */
+
+pub fn collections_list(state: &AppState) -> Result<Vec<CollectionSummary>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    let mut statement = conn
+        .prepare(
+            "SELECT c.id, c.name, COUNT(ci.media_id)
+             FROM collections c
+             LEFT JOIN collection_items ci ON ci.collection_id = c.id
+             GROUP BY c.id
+             ORDER BY c.name COLLATE NOCASE",
+        )
+        .map_err(|e| format!("cannot query collections: {e}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(CollectionSummary {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                count: row.get(2)?,
+            })
+        })
+        .map_err(|e| format!("cannot query collections: {e}"))?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|e| format!("cannot read a collection row: {e}"))?);
+    }
+    Ok(items)
+}
+
+pub fn collection_create(state: &AppState, name: &str) -> Result<i64, String> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 80 {
+        return Err("collection names are 1–80 characters".to_string());
+    }
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    let existing: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM collections WHERE name = ?1 COLLATE NOCASE",
+            [name],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("cannot check the collection name: {e}"))?;
+    if existing > 0 {
+        return Err("a collection with this name already exists".to_string());
+    }
+    conn.execute("INSERT INTO collections (name) VALUES (?1)", [name])
+        .map_err(|e| format!("cannot create the collection: {e}"))?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn collection_delete(state: &AppState, id: i64) -> Result<(), String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    conn.execute("DELETE FROM collections WHERE id = ?1", [id])
+        .map_err(|e| format!("cannot delete the collection: {e}"))?;
+    Ok(())
+}
+
+pub fn collection_set_membership(
+    state: &AppState,
+    collection_id: i64,
+    media_id: i64,
+    member: bool,
+) -> Result<(), String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    if member {
+        conn.execute(
+            "INSERT OR IGNORE INTO collection_items (collection_id, media_id) VALUES (?1, ?2)",
+            [collection_id, media_id],
+        )
+        .map_err(|e| format!("cannot add to the collection: {e}"))?;
+    } else {
+        conn.execute(
+            "DELETE FROM collection_items WHERE collection_id = ?1 AND media_id = ?2",
+            [collection_id, media_id],
+        )
+        .map_err(|e| format!("cannot remove from the collection: {e}"))?;
+    }
+    Ok(())
+}
+
+pub fn collection_memberships(state: &AppState) -> Result<Vec<CollectionMembership>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    let mut statement = conn
+        .prepare("SELECT collection_id, media_id FROM collection_items")
+        .map_err(|e| format!("cannot query memberships: {e}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(CollectionMembership {
+                collection_id: row.get(0)?,
+                media_id: row.get(1)?,
+            })
+        })
+        .map_err(|e| format!("cannot query memberships: {e}"))?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|e| format!("cannot read a membership row: {e}"))?);
+    }
+    Ok(items)
+}
+
+/* ------------------------------------------------------------------ */
+/* Integrity                                                           */
+/* ------------------------------------------------------------------ */
+
+/// Check every managed entry against the filesystem: reports files that are
+/// missing entirely or whose size no longer matches.
+pub fn check_integrity(state: &AppState) -> Result<Vec<IntegrityIssue>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    let mut statement = conn
+        .prepare("SELECT id, title, path, bytes FROM media")
+        .map_err(|e| format!("cannot query the library: {e}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+            ))
+        })
+        .map_err(|e| format!("cannot query the library: {e}"))?;
+
+    let mut issues = Vec::new();
+    for row in rows {
+        let (id, title, path, bytes) = row.map_err(|e| format!("cannot read a library row: {e}"))?;
+        let Some(path) = path else {
+            issues.push(IntegrityIssue {
+                id,
+                title,
+                status: "missing".to_string(),
+            });
+            continue;
+        };
+        match fs::metadata(&path) {
+            Err(_) => issues.push(IntegrityIssue {
+                id,
+                title,
+                status: "missing".to_string(),
+            }),
+            Ok(metadata) => {
+                if let Some(expected) = bytes {
+                    if metadata.len() as i64 != expected {
+                        issues.push(IntegrityIssue {
+                            id,
+                            title,
+                            status: "changed".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(issues)
+}
+
+/// Point an entry at a replacement file: validates it like an import, copies
+/// it into the library, regenerates the thumbnail, and updates the row while
+/// keeping id, title, description and tags.
+pub fn relink(state: &AppState, id: i64, new_path: &str) -> Result<(), String> {
+    let path = PathBuf::from(new_path);
+    let extension_ok = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            matches!(
+                e.to_ascii_lowercase().as_str(),
+                "jpg" | "jpeg" | "png" | "webp" | "gif"
+            )
+        })
+        .unwrap_or(false);
+    if !extension_ok {
+        return Err("only JPG, PNG, WEBP and GIF files can be relinked".to_string());
+    }
+
+    let bytes = fs::read(&path).map_err(|e| format!("cannot read the file: {e}"))?;
+    let Some((format_ext, format)) = detect_format(&bytes) else {
+        return Err("the file is damaged or is not really an image".to_string());
+    };
+    let decoded = image::load_from_memory_with_format(&bytes, format)
+        .map_err(|_| "the image could not be decoded".to_string())?;
+    let (width, height) = (decoded.width(), decoded.height());
+    let hash = sha256_hex(&bytes);
+    let short = &hash[..12];
+
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|e| format!("settings lock poisoned: {e}"))?
+        .clone();
+    let library_dir = storage::effective_library_dir(&settings)?;
+    fs::create_dir_all(&library_dir)
+        .map_err(|e| format!("cannot create the library folder: {e}"))?;
+    let target = library_dir.join(format!("{short}.{format_ext}"));
+    if !target.exists() {
+        fs::write(&target, &bytes).map_err(|e| format!("cannot copy into the library: {e}"))?;
+    }
+
+    let thumbs_dir = storage::thumbnails_dir()?;
+    let thumb_path = thumbs_dir.join(format!("{short}.jpg"));
+    let scale = THUMBNAIL_WIDTH as f32 / width as f32;
+    let thumbnail = if scale < 1.0 {
+        decoded.resize(
+            THUMBNAIL_WIDTH,
+            ((height as f32) * scale).round().max(1.0) as u32,
+            FilterType::Triangle,
+        )
+    } else {
+        decoded
+    };
+    thumbnail
+        .to_rgb8()
+        .save_with_format(&thumb_path, ImageFormat::Jpeg)
+        .map_err(|e| format!("cannot generate thumbnail: {e}"))?;
+
+    let aspect = width as f64 / height as f64;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    let updated = conn
+        .execute(
+            "UPDATE media SET path = ?1, format = ?2, width = ?3, height = ?4, aspect = ?5,
+                              bytes = ?6, sha256 = ?7, thumb_path = ?8, status = 'ok'
+             WHERE id = ?9",
+            rusqlite::params![
+                target.to_string_lossy(),
+                format_ext,
+                width as i64,
+                height as i64,
+                aspect,
+                bytes.len() as i64,
+                hash,
+                thumb_path.to_string_lossy(),
+                id
+            ],
+        )
+        .map_err(|e| format!("cannot update the entry: {e}"))?;
+    if updated == 0 {
+        return Err("library item not found".to_string());
+    }
+    Ok(())
+}
+
+/* ------------------------------------------------------------------ */
+/* Shell integration                                                   */
+/* ------------------------------------------------------------------ */
+
+/// Reveal a managed file in Windows Explorer (selects it). Windows-only by
+/// product scope; paths are resolved server-side from the database.
+pub fn reveal_item(state: &AppState, id: i64) -> Result<(), String> {
+    let path = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("database lock poisoned: {e}"))?;
+        conn.query_row("SELECT path FROM media WHERE id = ?1", [id], |row| {
+            row.get::<_, Option<String>>(0)
+        })
+        .map_err(|e| format!("library item not found: {e}"))?
+        .ok_or("this entry has no file on disk")?
+    };
+    if !Path::new(&path).exists() {
+        return Err("the file is missing on disk — try Check integrity".to_string());
+    }
+    std::process::Command::new("explorer.exe")
+        .arg("/select,")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("cannot open Explorer: {e}"))?;
+    Ok(())
+}
+
+/// Open the library folder itself in Windows Explorer.
+pub fn open_library_dir(state: &AppState) -> Result<(), String> {
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|e| format!("settings lock poisoned: {e}"))?
+        .clone();
+    let dir = storage::effective_library_dir(&settings)?;
+    fs::create_dir_all(&dir).map_err(|e| format!("cannot create the library folder: {e}"))?;
+    std::process::Command::new("explorer.exe")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("cannot open Explorer: {e}"))?;
+    Ok(())
+}
+
+pub fn library_info(state: &AppState) -> Result<LibraryInfo, String> {
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|e| format!("settings lock poisoned: {e}"))?
+        .clone();
+    let dir = storage::effective_library_dir(&settings)?;
+    Ok(LibraryInfo {
+        library_dir: dir.to_string_lossy().to_string(),
+    })
 }
 
 /// Remove an entry from the library. With `delete_files`, the managed copy

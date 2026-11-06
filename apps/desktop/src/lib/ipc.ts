@@ -17,6 +17,8 @@ export const IN_TAURI =
 
 export interface AppSettings {
   theme?: string | null;
+  /** Custom library location; null/undefined uses the default under Pictures. */
+  libraryDir?: string | null;
 }
 
 const LS_SETTINGS_KEY = "gamescape.settings.v0";
@@ -46,15 +48,21 @@ export async function getSettings(): Promise<AppSettings> {
   }
 }
 
-export async function saveSettings(settings: AppSettings): Promise<void> {
+/**
+ * Saves a settings patch — merges onto the current values so unrelated
+ * fields are never clobbered (e.g. changing the theme must not wipe the
+ * custom library directory).
+ */
+export async function saveSettings(patch: AppSettings): Promise<void> {
   if (!IN_TAURI) {
-    fallbackSaveSettings(settings);
+    fallbackSaveSettings({ ...fallbackGetSettings(), ...patch });
     return;
   }
   try {
-    await invoke("settings_set", { settings });
+    const current = await invoke<AppSettings>("settings_get");
+    await invoke("settings_set", { settings: { ...current, ...patch } });
   } catch {
-    fallbackSaveSettings(settings);
+    fallbackSaveSettings({ ...fallbackGetSettings(), ...patch });
   }
 }
 
@@ -138,10 +146,14 @@ export async function loadCatalogue(): Promise<CatalogueIndex | null> {
 export interface LibraryItem {
   id: number;
   title: string;
+  description?: string | null;
+  /** JSON array string of tags (parse before use). */
+  tags?: string | null;
   format?: string | null;
   width?: number | null;
   height?: number | null;
   bytes?: number | null;
+  sha256?: string | null;
   thumbPath?: string | null;
   filePath?: string | null;
   addedAt: string;
@@ -206,6 +218,80 @@ export function assetUrl(path: string | null | undefined): string {
   if (!path || !IN_TAURI) return "";
   return convertFileSrc(path);
 }
+
+export interface CollectionSummary {
+  id: number;
+  name: string;
+  count: number;
+}
+
+export interface CollectionMembership {
+  collectionId: number;
+  mediaId: number;
+}
+
+export interface IntegrityIssue {
+  id: number;
+  title: string;
+  /** missing | changed */
+  status: string;
+}
+
+export interface LibraryInfo {
+  libraryDir: string;
+}
+
+export type ActionResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string };
+
+async function runAction<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<ActionResult<T>> {
+  if (!IN_TAURI) {
+    return {
+      ok: false,
+      error: "This works inside the desktop app (browser preview is limited).",
+    };
+  }
+  try {
+    const value = await invoke<T>(command, args);
+    return { ok: true, value };
+  } catch (error) {
+    return { ok: false, error: typeof error === "string" ? error : String(error) };
+  }
+}
+
+export const libraryUpdate = (id: number, title: string, description: string, tags: string[]) =>
+  runAction<void>("library_update", { id, title, description, tags });
+
+export const libraryCheck = () => runAction<IntegrityIssue[]>("library_check");
+
+export const libraryRelink = (id: number, newPath: string) =>
+  runAction<void>("library_relink", { id, newPath });
+
+export const libraryReveal = (id: number) => runAction<void>("library_reveal", { id });
+
+export const libraryOpenDir = () => runAction<void>("library_open_dir");
+
+export const libraryInfo = () => runAction<LibraryInfo>("library_info");
+
+export const collectionsList = () => runAction<CollectionSummary[]>("collections_list");
+
+export const collectionCreate = (name: string) =>
+  runAction<number>("collection_create", { name });
+
+export const collectionDelete = (id: number) => runAction<void>("collection_delete", { id });
+
+export const collectionSetMembership = (
+  collectionId: number,
+  mediaId: number,
+  member: boolean,
+) => runAction<void>("collection_set_membership", { collectionId, mediaId, member });
+
+export const collectionMemberships = () =>
+  runAction<CollectionMembership[]>("collection_memberships");
 
 /* ------------------------------------------------------------------ */
 /* Favourites                                                          */

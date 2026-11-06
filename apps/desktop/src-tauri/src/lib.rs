@@ -135,6 +135,82 @@ fn library_remove(
 }
 
 #[tauri::command]
+fn library_update(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    title: String,
+    description: String,
+    tags: Vec<String>,
+) -> Result<(), String> {
+    library::update_metadata(state.inner(), id, &title, &description, &tags)
+}
+
+#[tauri::command]
+fn collections_list(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<library::CollectionSummary>, String> {
+    library::collections_list(state.inner())
+}
+
+#[tauri::command]
+fn collection_create(state: tauri::State<'_, AppState>, name: String) -> Result<i64, String> {
+    library::collection_create(state.inner(), &name)
+}
+
+#[tauri::command]
+fn collection_delete(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
+    library::collection_delete(state.inner(), id)
+}
+
+#[tauri::command]
+fn collection_set_membership(
+    state: tauri::State<'_, AppState>,
+    collection_id: i64,
+    media_id: i64,
+    member: bool,
+) -> Result<(), String> {
+    library::collection_set_membership(state.inner(), collection_id, media_id, member)
+}
+
+#[tauri::command]
+fn collection_memberships(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<library::CollectionMembership>, String> {
+    library::collection_memberships(state.inner())
+}
+
+#[tauri::command]
+fn library_check(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<library::IntegrityIssue>, String> {
+    library::check_integrity(state.inner())
+}
+
+#[tauri::command]
+fn library_relink(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    new_path: String,
+) -> Result<(), String> {
+    library::relink(state.inner(), id, &new_path)
+}
+
+#[tauri::command]
+fn library_reveal(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
+    library::reveal_item(state.inner(), id)
+}
+
+#[tauri::command]
+fn library_open_dir(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    library::open_library_dir(state.inner())
+}
+
+#[tauri::command]
+fn library_info(state: tauri::State<'_, AppState>) -> Result<library::LibraryInfo, String> {
+    library::library_info(state.inner())
+}
+
+#[tauri::command]
 fn favourites_list(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
     let conn = state
         .db
@@ -374,6 +450,17 @@ pub fn run() {
             import_paths,
             library_list,
             library_remove,
+            library_update,
+            library_check,
+            library_relink,
+            library_reveal,
+            library_open_dir,
+            library_info,
+            collections_list,
+            collection_create,
+            collection_delete,
+            collection_set_membership,
+            collection_memberships,
             favourites_list,
             favourite_set
         ])

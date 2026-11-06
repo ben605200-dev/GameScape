@@ -5,6 +5,7 @@ import { DownloadsPage } from "../pages/DownloadsPage";
 import { FavouritesPage } from "../pages/FavouritesPage";
 import { HomePage } from "../pages/HomePage";
 import { LayoutsPage } from "../pages/LayoutsPage";
+import { LibraryItemPage } from "../pages/LibraryItemPage";
 import { LibraryPage } from "../pages/LibraryPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import { WallpaperDetailPage } from "../pages/WallpaperDetailPage";
@@ -24,6 +25,7 @@ export function App() {
             <Route path="/wallpapers" element={<WallpapersPage />} />
             <Route path="/wallpapers/:id" element={<WallpaperDetailPage />} />
             <Route path="/library" element={<LibraryPage />} />
+            <Route path="/library/:id" element={<LibraryItemPage />} />
             <Route path="/widgets" element={<WidgetsPage />} />
             <Route path="/layouts" element={<LayoutsPage />} />
             <Route path="/discover" element={<DiscoverPage />} />
