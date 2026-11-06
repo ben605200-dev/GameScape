@@ -173,8 +173,15 @@ CREATE TABLE IF NOT EXISTS catalogue_cache (
 );
 "#;
 
+/// Schema v2 — media probe columns: animation frames for GIFs, audio
+/// presence for videos (Phase 4 media pipeline).
+const V2_SQL: &str = r#"
+ALTER TABLE media ADD COLUMN frame_count INTEGER;
+ALTER TABLE media ADD COLUMN has_audio INTEGER;
+"#;
+
 fn migrations() -> &'static [(i64, &'static str)] {
-    &[(1, V1_SQL)]
+    &[(1, V1_SQL), (2, V2_SQL)]
 }
 
 pub fn open_and_migrate() -> Result<Connection, String> {

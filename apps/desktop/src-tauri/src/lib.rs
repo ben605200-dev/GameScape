@@ -211,6 +211,20 @@ fn library_info(state: tauri::State<'_, AppState>) -> Result<library::LibraryInf
 }
 
 #[tauri::command]
+fn library_set_poster(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    data_url: String,
+) -> Result<(), String> {
+    library::set_poster(state.inner(), id, &data_url)
+}
+
+#[tauri::command]
+fn library_read_data(state: tauri::State<'_, AppState>, id: i64) -> Result<String, String> {
+    library::read_file_data_url(state.inner(), id)
+}
+
+#[tauri::command]
 fn favourites_list(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
     let conn = state
         .db
@@ -456,6 +470,8 @@ pub fn run() {
             library_reveal,
             library_open_dir,
             library_info,
+            library_set_poster,
+            library_read_data,
             collections_list,
             collection_create,
             collection_delete,

@@ -154,6 +154,12 @@ export interface LibraryItem {
   height?: number | null;
   bytes?: number | null;
   sha256?: string | null;
+  /** Video/GIF duration in seconds. */
+  durationS?: number | null;
+  /** GIF frame count. */
+  frameCount?: number | null;
+  /** 1 when the video has an audio track. */
+  hasAudio?: number | null;
   thumbPath?: string | null;
   filePath?: string | null;
   addedAt: string;
@@ -276,6 +282,12 @@ export const libraryReveal = (id: number) => runAction<void>("library_reveal", {
 export const libraryOpenDir = () => runAction<void>("library_open_dir");
 
 export const libraryInfo = () => runAction<LibraryInfo>("library_info");
+
+export const librarySetPoster = (id: number, dataUrl: string) =>
+  runAction<void>("library_set_poster", { id, dataUrl });
+
+export const libraryReadData = (id: number) =>
+  runAction<string>("library_read_data", { id });
 
 export const collectionsList = () => runAction<CollectionSummary[]>("collections_list");
 

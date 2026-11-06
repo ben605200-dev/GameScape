@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
+import { generateMissingPosters } from "../lib/posters";
 import {
   assetUrl,
   collectionCreate,
@@ -77,6 +78,12 @@ export function LibraryPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Videos without thumbnails get a poster frame generated on first load.
+  useEffect(() => {
+    if (!items) return;
+    generateMissingPosters(items);
+  }, [items]);
 
   useEffect(() => {
     const onRefresh = () => {
@@ -411,7 +418,7 @@ export function LibraryPage() {
         <EmptyState
           icon={FolderOpen}
           title="Your personal library"
-          description="Import your own wallpapers — JPG, PNG, WEBP and GIF are validated, de-duplicated and thumbnailed locally. Nothing is ever uploaded."
+          description="Import your own wallpapers — JPG, PNG, WEBP, GIF and MP4 are validated, de-duplicated and thumbnailed locally. Nothing is ever uploaded."
         >
           <button
             type="button"

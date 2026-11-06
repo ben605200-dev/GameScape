@@ -24,7 +24,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$LOCALDATA/GameScape/cache/**"]
+        "scope": ["$LOCALDATA/GameScape/cache/**", "$PICTURE/GameScape Library/**"]
       }
     }
   },

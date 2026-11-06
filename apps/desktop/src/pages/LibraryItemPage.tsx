@@ -21,10 +21,19 @@ function formatBytes(bytes: number | null | undefined): string {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
+function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds || seconds <= 0) return "—";
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
 export function LibraryItemPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const itemId = Number(id);
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const [item, setItem] = useState<LibraryItem | null>(null);
   const [checked, setChecked] = useState(false);
@@ -173,7 +182,22 @@ export function LibraryItemPage() {
       <div className="detail-grid">
         <div className="card stack">
           <div className="item-thumb">
-            {item.thumbPath ? <img src={assetUrl(item.thumbPath)} alt="" /> : null}
+            {item.format === "mp4" ? (
+              <video
+                className="item-media"
+                src={assetUrl(item.filePath)}
+                controls
+                loop
+                muted
+                playsInline
+                autoPlay={!reduceMotion}
+                poster={item.thumbPath ? assetUrl(item.thumbPath) : undefined}
+              />
+            ) : item.format === "gif" ? (
+              <img className="item-media" src={assetUrl(item.filePath)} alt="" />
+            ) : item.thumbPath ? (
+              <img src={assetUrl(item.thumbPath)} alt="" />
+            ) : null}
           </div>
           <dl className="meta-list">
             <div>
@@ -190,6 +214,23 @@ export function LibraryItemPage() {
               <dt>Added</dt>
               <dd>{item.addedAt.slice(0, 10)}</dd>
             </div>
+            {item.format === "mp4" && (
+              <div>
+                <dt>Duration</dt>
+                <dd className="mono">
+                  {formatDuration(item.durationS)}
+                  {item.hasAudio ? "" : " · silent"}
+                </dd>
+              </div>
+            )}
+            {item.format === "gif" && item.frameCount ? (
+              <div>
+                <dt>Animation</dt>
+                <dd className="mono">
+                  {item.frameCount} frames · {formatDuration(item.durationS)} loop
+                </dd>
+              </div>
+            ) : null}
             <div>
               <dt>SHA-256</dt>
               <dd className="mono" title={item.sha256 ?? undefined}>

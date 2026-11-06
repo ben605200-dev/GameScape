@@ -4,7 +4,7 @@ The GameScape Windows application.
 
 **Stack:** Tauri v2 · Rust core (`src-tauri/`) · React + TypeScript + Vite (`src/`)
 
-**Status:** Phase 3 essentially complete — personal library with the import pipeline (file picker + drag-and-drop, validation, SHA-256 dedupe, thumbnails), metadata editing (title/description/tags), collections, integrity scanning with relink, library-location setting, and interactive previews on every wallpaper. The download manager is intentionally deferred until Phase 8 provides the hosting story. Tauri v2.12, React 19, Vite 8, react-router 7. Structure:
+**Status:** Phase 4 underway — media pipeline: MP4 imports with real container probing (duration, dimensions, audio detection), GIF frame analysis, video/GIF playback on item pages, automatic video poster frames, plus everything from Phases 2–3 (library, collections, integrity, interactive previews). The download manager is intentionally deferred until Phase 8 provides the hosting story. Tauri v2.12, React 19, Vite 8, react-router 7. Structure:
 
 ```
 src/          React UI (app shell, features, components, lib)
