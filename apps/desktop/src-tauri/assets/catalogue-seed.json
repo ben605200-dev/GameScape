@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "0.1",
+  "generatedAt": "2026-11-07T00:00:00Z",
+  "entries": [
+    {
+      "id": "neon-alley",
+      "title": "Neon Alley — Night City",
+      "description": "Rain-slicked alley under neon signage. Looping ambient motion.",
+      "mediaType": "mp4",
+      "game": "Cyber Drift 2099",
+      "tags": ["cyberpunk", "city", "neon", "night"],
+      "resolution": { "width": 3840, "height": 2160 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-11-01",
+      "placeholder": { "dominantHex": "#7C5CFF", "accentHex": "#22D3EE" }
+    },
+    {
+      "id": "drift-horizon",
+      "title": "Drift Horizon",
+      "description": "Sunset run across open desert — warm light, long shadows.",
+      "mediaType": "mp4",
+      "game": "Apex Circuit",
+      "tags": ["racing", "sunset", "desert"],
+      "resolution": { "width": 2560, "height": 1440 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-11-02",
+      "placeholder": { "dominantHex": "#F97316", "accentHex": "#7C5CFF" }
+    },
+    {
+      "id": "aurora-calm",
+      "title": "Aurora Calm",
+      "description": "Still night sky over a frozen lake with aurora bands.",
+      "mediaType": "static",
+      "game": null,
+      "tags": ["nature", "aurora", "night"],
+      "resolution": { "width": 3840, "height": 2160 },
+      "licenceId": "CC0-1.0",
+      "addedAt": "2026-11-03",
+      "placeholder": { "dominantHex": "#10B981", "accentHex": "#22D3EE" }
+    },
+    {
+      "id": "pixel-rush",
+      "title": "Pixel Rush",
+      "description": "Arcade grid with pulsing scanlines — animated GIF loop.",
+      "mediaType": "gif",
+      "game": "Retro Arena",
+      "tags": ["retro", "pixel", "arcade"],
+      "resolution": { "width": 1920, "height": 1080 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-11-04",
+      "placeholder": { "dominantHex": "#F472B6", "accentHex": "#7C5CFF" }
+    },
+    {
+      "id": "orbit-station",
+      "title": "Orbit Station",
+      "description": "Quiet observation deck above a ringed planet.",
+      "mediaType": "static",
+      "game": "Stellar Frontier",
+      "tags": ["space", "station", "sci-fi"],
+      "resolution": { "width": 3840, "height": 2160 },
+      "licenceId": "GAMESCAPE-ORIGINAL",
+      "addedAt": "2026-11-05",
+      "placeholder": { "dominantHex": "#4C8DFF", "accentHex": "#7C5CFF" }
+    }
+  ]
+}
