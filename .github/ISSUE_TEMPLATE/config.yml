@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability (private)
-    url: https://github.com/OWNER/gamescape/security/advisories/new
+    url: https://github.com/ben605200-dev/GameScape/security/advisories/new
     about: Please report security vulnerabilities privately — never in a public issue.
   - name: Support & help
-    url: https://github.com/OWNER/gamescape/blob/main/SUPPORT.md
+    url: https://github.com/ben605200-dev/GameScape/blob/main/SUPPORT.md
     about: Questions, help, and where to get support.
   - name: Community discussions
-    url: https://github.com/OWNER/gamescape/discussions
+    url: https://github.com/ben605200-dev/GameScape/discussions
     about: Ideas, showcase, and general questions (enabled before the first public release).

@@ -30,7 +30,7 @@ By participating, you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 **Getting started**
 
 ```text
-git clone https://github.com/OWNER/gamescape.git
+git clone https://github.com/ben605200-dev/GameScape.git
 cd gamescape
 pnpm install
 ```
