@@ -94,6 +94,11 @@ export interface PlaceholderColors {
 
 export type MediaType = "static" | "gif" | "mp4";
 
+export interface EffectSpec {
+  /** orbit | ribbon | grid (the set grows over time). */
+  style: string;
+}
+
 export interface CatalogueEntry {
   id: string;
   title: string;
@@ -107,6 +112,8 @@ export interface CatalogueEntry {
   placeholder: PlaceholderColors;
   /** Cursor-reactive wallpaper flag (desktop runtime ships in Phase 5). */
   interactive?: boolean;
+  /** Cursor-reactive effect descriptor for interactive entries. */
+  effect?: EffectSpec | null;
 }
 
 export interface CatalogueIndex {

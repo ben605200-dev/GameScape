@@ -24,6 +24,14 @@ pub struct PlaceholderColors {
     pub accent_hex: String,
 }
 
+/// Cursor-reactive effect descriptor for interactive wallpapers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectSpec {
+    /// orbit | ribbon | grid (validated leniently — the set grows over time).
+    pub style: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogueEntry {
@@ -42,6 +50,9 @@ pub struct CatalogueEntry {
     /// in Phase 5; the spike harness validates the technique today.
     #[serde(default)]
     pub interactive: bool,
+    /// Optional cursor-reactive effect descriptor (see `interactive`).
+    #[serde(default)]
+    pub effect: Option<EffectSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +82,17 @@ pub fn load_seed() -> Result<CatalogueIndex, String> {
                 "entry {} has unsupported media type: {}",
                 entry.id, entry.media_type
             ));
+        }
+        if let Some(effect) = &entry.effect {
+            let style_ok = !effect.style.is_empty()
+                && effect.style.len() <= 32
+                && effect
+                    .style
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+            if !style_ok {
+                return Err(format!("entry {} has an invalid effect style", entry.id));
+            }
         }
     }
 

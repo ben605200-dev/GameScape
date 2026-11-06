@@ -13,7 +13,8 @@
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-11-07",
       "placeholder": { "dominantHex": "#7C5CFF", "accentHex": "#22D3EE" },
-      "interactive": true
+      "interactive": true,
+      "effect": { "style": "orbit" }
     },
     {
       "id": "aurora-calm",
@@ -38,7 +39,8 @@
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-11-05",
       "placeholder": { "dominantHex": "#F472B6", "accentHex": "#7C5CFF" },
-      "interactive": true
+      "interactive": true,
+      "effect": { "style": "grid" }
     },
     {
       "id": "tokyo-overpass",
@@ -51,7 +53,8 @@
       "licenceId": "GAMESCAPE-ORIGINAL",
       "addedAt": "2026-11-04",
       "placeholder": { "dominantHex": "#4C8DFF", "accentHex": "#F472B6" },
-      "interactive": true
+      "interactive": true,
+      "effect": { "style": "ribbon" }
     },
     {
       "id": "canyon-run",

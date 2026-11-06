@@ -24,5 +24,5 @@ Hard rules:
 
 Field notes:
 
-- `interactive` is reserved for cursor-reactive wallpapers (technique validated in the Phase 0 spike harness; ships with the desktop host in Phase 5).
+- `interactive` marks cursor-reactive wallpapers; the optional `effect` descriptor (`{ "style": "orbit" | "ribbon" | "grid" }`) selects the style and the placeholder colours act as its palette. The same descriptor will drive the desktop host in Phase 5 (technique already validated in the Phase 0 spike harness).
 - `schemaVersion` is a `major.minor` pair; breaking changes bump `major` and are coordinated with the app's minimum-version check.

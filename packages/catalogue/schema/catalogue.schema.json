@@ -80,7 +80,16 @@
         },
         "interactive": {
           "type": "boolean",
-          "description": "Reserved: marks wallpapers with cursor-reactive effects. The detailed effect descriptor lands with the desktop host subsystem (Phase 5); the cursor bridge prototype is already validated in the spike harness."
+          "description": "Marks wallpapers with cursor-reactive effects. The `effect` descriptor selects the style; the same descriptor will drive the desktop host in Phase 5."
+        },
+        "effect": {
+          "type": "object",
+          "description": "Cursor-reactive effect for interactive wallpapers. The palette defaults to the placeholder colours.",
+          "required": ["style"],
+          "additionalProperties": false,
+          "properties": {
+            "style": { "enum": ["orbit", "ribbon", "grid"] }
+          }
         }
       }
     }

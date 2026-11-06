@@ -30,3 +30,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Favourites**: star toggle on cards and detail pages, persisted in SQLite, with a working Favourites page.
 - Seed catalogue expanded from 5 to 14 fictional entries across 4 games and all three media types — including portrait and ultrawide layouts so filters have real variety.
 - Shared `WallpaperCard` component now used by Wallpapers, Favourites and the Home shelf.
+- Interactive previews are now **per-wallpaper**: an `effect` descriptor (`orbit` / `ribbon` / `grid`) rides in the catalogue schema (validated in the Rust model) and each effect renders tinted with the wallpaper's own placeholder palette. Fixes a gap where every interactive preview rendered the same hardcoded effect.

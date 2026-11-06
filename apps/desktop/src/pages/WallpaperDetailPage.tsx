@@ -71,11 +71,18 @@ export function WallpaperDetailPage() {
         <div className="card stack">
           {entry.interactive ? (
             <>
-              <InteractivePreview className="preview-canvas" />
+              <InteractivePreview
+                className="preview-canvas"
+                effectName={entry.effect?.style ?? "orbit"}
+                dominant={entry.placeholder.dominantHex}
+                accent={entry.placeholder.accentHex}
+              />
               <p className="muted" style={{ fontSize: 13 }}>
-                Move your mouse over the preview — the light follows it. On the
-                desktop, this effect runs behind your icons (technique validated
-                in the Phase 0 spike; the desktop host ships it in Phase 5).
+                Move your mouse over the preview — the effect follows your
+                cursor, tinted with this wallpaper&apos;s own palette. On the
+                desktop, the same effect runs behind your icons (technique
+                validated in the Phase 0 spike; the desktop host ships it in
+                Phase 5).
               </p>
             </>
           ) : (
