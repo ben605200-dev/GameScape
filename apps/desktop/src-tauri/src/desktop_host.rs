@@ -75,12 +75,22 @@ pub struct AppliedWallpaper {
     pub title: String,
 }
 
+/// A monitor as seen by the host (for per-monitor assignment).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostMonitor {
+    pub index: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Everything the UI needs to render desktop-host state.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostReport {
     pub surfaces: Vec<HostSurface>,
     pub applied: Option<AppliedWallpaper>,
+    pub monitors: Vec<HostMonitor>,
 }
 
 struct Surface {
@@ -550,7 +560,12 @@ fn ensure_static_ready(path: &str, format: Option<&str>) -> Result<String, Strin
 /// (default: fill the screen edge to edge). The wallpaper in place before
 /// the first apply is remembered per monitor — including its fit mode —
 /// so restore puts everything back exactly as it was.
-pub fn apply_static(state: &AppState, library_path: &str, format: Option<&str>) -> Result<String, String> {
+pub fn apply_static(
+    state: &AppState,
+    library_path: &str,
+    format: Option<&str>,
+    monitor: Option<u32>,
+) -> Result<String, String> {
     let ready_path = ensure_static_ready(library_path, format)?;
     let ready_wide = wide(&ready_path);
     let (fit_name, fit_position) = configured_fit(state);
@@ -572,8 +587,19 @@ pub fn apply_static(state: &AppState, library_path: &str, format: Option<&str>) 
             position_name(previous_position)
         ));
 
+        let indices: Vec<u32> = match monitor {
+            Some(target) if target < count => vec![target],
+            Some(target) => {
+                return Err(format!(
+                    "monitor {} does not exist ({count} monitor(s) reported)",
+                    target + 1
+                ))
+            }
+            None => (0..count).collect(),
+        };
+
         let mut previous: Vec<(String, String)> = Vec::new();
-        for index in 0..count {
+        for index in indices {
             let monitor_id = desktop
                 .GetMonitorDevicePathAt(index)
                 .map_err(|error| format!("cannot read monitor {index}: {error}"))?;
@@ -819,7 +845,33 @@ fn create_surface(
     })
 }
 
-/// Replace every surface with fresh ones for the given media (all monitors).
+fn pause_state(host: &HostState) -> bool {
+    host.inner
+        .lock()
+        .map(|inner| inner.manual_paused || inner.governor_paused)
+        .unwrap_or(false)
+}
+
+/// Destroys the surface for one monitor; other monitors keep animating.
+fn remove_surface(app: &AppHandle, host: &HostState, monitor: u32) -> Result<(), String> {
+    let label = {
+        let mut inner = host
+            .inner
+            .lock()
+            .map_err(|e| format!("host state lock poisoned: {e}"))?;
+        inner.surfaces.remove(&monitor).map(|surface| surface.label)
+    };
+    if let Some(label) = label {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.destroy();
+        }
+    }
+    let _ = app.emit("host:state", ());
+    Ok(())
+}
+
+/// Applies animated media to every monitor, or replaces just one monitor's
+/// surface (per-monitor assignment) while the others keep playing.
 pub fn apply_animated(
     app: &AppHandle,
     host: &HostState,
@@ -828,61 +880,108 @@ pub fn apply_animated(
     title: &str,
     media_id: i64,
     fit: &str,
+    monitor: Option<u32>,
 ) -> Result<(), String> {
-    stop_all(app, host)?;
-
     let monitors = app
         .available_monitors()
         .map_err(|error| format!("cannot list monitors: {error}"))?;
     if monitors.is_empty() {
         return Err("no monitors reported".to_string());
     }
+    if let Some(target) = monitor {
+        if target as usize >= monitors.len() {
+            return Err(format!(
+                "monitor {} does not exist ({} monitor(s) reported)",
+                target + 1,
+                monitors.len()
+            ));
+        }
+    }
+
     let layer = discover_layer()?;
 
-    let start_paused = {
-        let inner = host
-            .inner
-            .lock()
-            .map_err(|e| format!("host state lock poisoned: {e}"))?;
-        inner.manual_paused || inner.governor_paused
-    };
+    match monitor {
+        Some(target) => {
+            // Single monitor: swap just that surface; leave the rest alone.
+            let existing_label = {
+                let inner = host
+                    .inner
+                    .lock()
+                    .map_err(|e| format!("host state lock poisoned: {e}"))?;
+                inner.surfaces.get(&target).map(|surface| surface.label.clone())
+            };
+            if let Some(label) = existing_label {
+                if let Some(window) = app.get_webview_window(&label) {
+                    let _ = window.destroy();
+                }
+            }
+            let start_paused = pause_state(host);
+            let surface = create_surface(
+                app,
+                &monitors[target as usize],
+                target as usize,
+                media_id,
+                media_path,
+                kind,
+                title,
+                fit,
+                start_paused,
+                &layer,
+            )?;
+            let mut inner = host
+                .inner
+                .lock()
+                .map_err(|e| format!("host state lock poisoned: {e}"))?;
+            inner.surfaces.insert(target, surface);
+            inner.parent = Some(layer.parent.0 as isize);
+        }
+        None => {
+            stop_all(app, host)?;
+            let start_paused = pause_state(host);
 
-    let mut created: Vec<Surface> = Vec::new();
-    for (index, monitor) in monitors.iter().enumerate() {
-        match create_surface(
-            app,
-            monitor,
-            index,
-            media_id,
-            media_path,
-            kind,
-            title,
-            fit,
-            start_paused,
-            &layer,
-        ) {
-            Ok(surface) => created.push(surface),
-            Err(error) => {
-                for surface in &created {
-                    if let Some(window) = app.get_webview_window(&surface.label) {
-                        let _ = window.destroy();
+            let mut created: Vec<Surface> = Vec::new();
+            for (index, monitor) in monitors.iter().enumerate() {
+                match create_surface(
+                    app,
+                    monitor,
+                    index,
+                    media_id,
+                    media_path,
+                    kind,
+                    title,
+                    fit,
+                    start_paused,
+                    &layer,
+                ) {
+                    Ok(surface) => created.push(surface),
+                    Err(error) => {
+                        for surface in &created {
+                            if let Some(window) = app.get_webview_window(&surface.label) {
+                                let _ = window.destroy();
+                            }
+                        }
+                        return Err(error);
                     }
                 }
-                return Err(error);
             }
+
+            let mut inner = host
+                .inner
+                .lock()
+                .map_err(|e| format!("host state lock poisoned: {e}"))?;
+            inner.surfaces = created
+                .into_iter()
+                .map(|surface| (surface.monitor_index, surface))
+                .collect();
+            inner.parent = Some(layer.parent.0 as isize);
         }
     }
 
     let (effective_paused, pause_reason) = {
-        let mut inner = host
+        let inner = host
             .inner
             .lock()
             .map_err(|e| format!("host state lock poisoned: {e}"))?;
-        inner.surfaces = created
-            .into_iter()
-            .map(|surface| (surface.monitor_index, surface))
-            .collect();
-        inner.parent = Some(layer.parent.0 as isize);
         let effective = inner.manual_paused || inner.governor_paused;
         let reason = if inner.governor_paused {
             inner.governor_reason.clone()
@@ -964,7 +1063,7 @@ pub fn status(host: &HostState) -> Vec<HostSurface> {
 }
 
 /// Surfaces + the last applied wallpaper — what the UI renders from.
-pub fn report(host: &HostState, state: &AppState) -> HostReport {
+pub fn report(app: &AppHandle, host: &HostState, state: &AppState) -> HostReport {
     let applied = state
         .settings
         .lock()
@@ -975,9 +1074,21 @@ pub fn report(host: &HostState, state: &AppState) -> HostReport {
             media_id: last.media_id,
             title: last.title,
         });
+    let monitors = app
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+        .map(|(index, monitor)| HostMonitor {
+            index: index as u32,
+            width: monitor.size().width,
+            height: monitor.size().height,
+        })
+        .collect();
     HostReport {
         surfaces: status(host),
         applied,
+        monitors,
     }
 }
 
@@ -989,6 +1100,7 @@ pub fn apply_library_item(
     state: &AppState,
     host: &HostState,
     media_id: i64,
+    monitor: Option<u32>,
 ) -> Result<String, String> {
     let (path, format, title) = {
         let conn = state
@@ -1017,9 +1129,17 @@ pub fn apply_library_item(
         _ => "static",
     };
 
+    let scope = match monitor {
+        Some(target) => format!(" [monitor {}]", target + 1),
+        None => String::new(),
+    };
+
     if kind == "static" {
-        stop_all(app, host)?;
-        let applied = apply_static(state, &path, Some(&format_value))?;
+        match monitor {
+            Some(target) => remove_surface(app, host, target)?,
+            None => stop_all(app, host)?,
+        }
+        let applied = apply_static(state, &path, Some(&format_value), monitor)?;
         remember_last_wallpaper(
             state,
             host,
@@ -1028,11 +1148,12 @@ pub fn apply_library_item(
             &path,
             Some(&format_value),
             &title,
+            monitor,
         );
-        log_line(&format!("HOST_APPLY_OK static {applied}"));
+        log_line(&format!("HOST_APPLY_OK static {applied}{scope}"));
     } else {
         let (fit_name, _) = configured_fit(state);
-        apply_animated(app, host, &path, kind, &title, media_id, fit_name)?;
+        apply_animated(app, host, &path, kind, &title, media_id, fit_name, monitor)?;
         remember_last_wallpaper(
             state,
             host,
@@ -1041,8 +1162,9 @@ pub fn apply_library_item(
             &path,
             Some(&format_value),
             &title,
+            monitor,
         );
-        log_line(&format!("HOST_APPLY_OK {kind} {title}"));
+        log_line(&format!("HOST_APPLY_OK {kind} {title}{scope}"));
     }
     Ok(kind.to_string())
 }
@@ -1057,6 +1179,7 @@ pub fn remember_last_wallpaper(
     path: &str,
     format: Option<&str>,
     title: &str,
+    monitor: Option<u32>,
 ) {
     if let Ok(mut settings) = state.settings.lock() {
         settings.last_wallpaper = Some(storage::LastWallpaper {
@@ -1065,6 +1188,7 @@ pub fn remember_last_wallpaper(
             path: path.to_string(),
             format: format.map(|value| value.to_string()),
             title: title.to_string(),
+            monitor,
         });
         settings.wallpaper_enabled = Some(true);
         let _ = storage::save_settings(&settings);
@@ -1192,7 +1316,7 @@ fn rotation_tick(app: &AppHandle, host: &HostState, state: &AppState) {
 
     let position = current_id.and_then(|id| candidates.iter().position(|(cid, _)| *cid == id));
     let next = next_rotation_position(candidates.len(), position);
-    match apply_library_item(app, state, host, candidates[next].0) {
+    match apply_library_item(app, state, host, candidates[next].0, None) {
         Ok(kind) => log_line(&format!(
             "rotation: applied {kind} ({} of {})",
             next + 1,
@@ -1362,7 +1486,7 @@ pub fn startup_restore(app: &AppHandle) {
         }
 
         let result = if last.kind == "static" {
-            apply_static(state.inner(), &last.path, last.format.as_deref()).map(|_| ())
+            apply_static(state.inner(), &last.path, last.format.as_deref(), last.monitor).map(|_| ())
         } else {
             let (fit_name, _) = configured_fit(state.inner());
             apply_animated(
@@ -1373,6 +1497,7 @@ pub fn startup_restore(app: &AppHandle) {
                 &last.title,
                 last.media_id,
                 fit_name,
+                last.monitor,
             )
         };
         match result {

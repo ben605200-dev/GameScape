@@ -235,8 +235,9 @@ async fn host_apply_media(
     state: tauri::State<'_, AppState>,
     host: tauri::State<'_, desktop_host::HostState>,
     media_id: i64,
+    monitor: Option<u32>,
 ) -> Result<String, String> {
-    desktop_host::apply_library_item(&app, state.inner(), host.inner(), media_id)
+    desktop_host::apply_library_item(&app, state.inner(), host.inner(), media_id, monitor)
 }
 
 #[tauri::command]
@@ -249,10 +250,11 @@ async fn host_stop(
 
 #[tauri::command]
 fn host_status(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     host: tauri::State<'_, desktop_host::HostState>,
 ) -> desktop_host::HostReport {
-    desktop_host::report(host.inner(), state.inner())
+    desktop_host::report(&app, host.inner(), state.inner())
 }
 
 /// Turn wallpapers off entirely: stop animation, put the previous

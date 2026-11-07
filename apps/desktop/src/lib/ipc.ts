@@ -315,14 +315,25 @@ export interface AppliedWallpaper {
   title: string;
 }
 
+/** A monitor as reported by the host (for per-monitor assignment). */
+export interface HostMonitor {
+  index: number;
+  width: number;
+  height: number;
+}
+
 export interface HostReport {
   surfaces: HostSurface[];
   applied: AppliedWallpaper | null;
+  monitors: HostMonitor[];
 }
 
-/** Apply a library item to every monitor (static image or animated media). */
-export const hostApplyMedia = (mediaId: number) =>
-  runAction<string>("host_apply_media", { mediaId });
+/**
+ * Apply a library item (static image or animated media). Omit `monitor`
+ * (or pass null) to apply to every monitor.
+ */
+export const hostApplyMedia = (mediaId: number, monitor?: number | null) =>
+  runAction<string>("host_apply_media", { mediaId, monitor: monitor ?? null });
 
 export const hostStop = () => runAction<void>("host_stop");
 
@@ -335,11 +346,11 @@ export const hostRestorePrevious = () => runAction<void>("host_restore_previous"
 export const hostTurnOff = () => runAction<void>("host_turn_off");
 
 export async function hostStatus(): Promise<HostReport> {
-  if (!IN_TAURI) return { surfaces: [], applied: null };
+  if (!IN_TAURI) return { surfaces: [], applied: null, monitors: [] };
   try {
     return await invoke<HostReport>("host_status");
   } catch {
-    return { surfaces: [], applied: null };
+    return { surfaces: [], applied: null, monitors: [] };
   }
 }
 

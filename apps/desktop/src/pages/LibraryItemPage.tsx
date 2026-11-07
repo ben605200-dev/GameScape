@@ -16,6 +16,7 @@ import {
   listLibrary,
   removeLibraryItem,
   type CollectionSummary,
+  type HostMonitor,
   type LibraryItem,
 } from "../lib/ipc";
 
@@ -53,6 +54,8 @@ export function LibraryItemPage() {
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<string | null>(null);
   const [appliedId, setAppliedId] = useState<number | null>(null);
+  const [monitors, setMonitors] = useState<HostMonitor[]>([]);
+  const [target, setTarget] = useState<"all" | number>("all");
   const isApplied = appliedId === itemId;
 
   const load = useCallback(async () => {
@@ -80,6 +83,7 @@ export function LibraryItemPage() {
     );
     const report = await hostStatus();
     setAppliedId(report.applied?.mediaId ?? null);
+    setMonitors(report.monitors);
     setChecked(true);
   }, [itemId]);
 
@@ -147,13 +151,15 @@ export function LibraryItemPage() {
   const applyToDesktop = async () => {
     setApplying(true);
     setError(null);
-    const result = await hostApplyMedia(itemId);
+    const monitor = target === "all" ? null : target;
+    const result = await hostApplyMedia(itemId, monitor);
     if (result.ok) {
       setAppliedId(itemId);
+      const scope = target === "all" ? "" : ` — monitor ${target + 1}`;
       setApplyResult(
         result.value === "static"
-          ? "Applied as desktop wallpaper"
-          : `Animating on your desktop (${result.value})`,
+          ? `Applied as desktop wallpaper${scope}`
+          : `Animating on your desktop (${result.value})${scope}`,
       );
       window.setTimeout(() => setApplyResult(null), 4000);
     } else {
@@ -294,15 +300,36 @@ export function LibraryItemPage() {
                 {applying ? "Turning off…" : "Turn off desktop wallpaper"}
               </button>
             ) : (
-              <button
-                type="button"
-                className="button button-primary"
-                onClick={() => void applyToDesktop()}
-                disabled={applying || !IN_TAURI}
-              >
-                <Monitor size={15} aria-hidden="true" />
-                {applying ? "Applying…" : "Set as desktop wallpaper"}
-              </button>
+              <>
+                <select
+                  className="button"
+                  value={target}
+                  onChange={(event) =>
+                    setTarget(
+                      event.target.value === "all"
+                        ? "all"
+                        : Number(event.target.value),
+                    )
+                  }
+                  disabled={applying || !IN_TAURI}
+                >
+                  <option value="all">All monitors</option>
+                  {monitors.map((monitor) => (
+                    <option key={monitor.index} value={monitor.index}>
+                      Monitor {monitor.index + 1} ({monitor.width}×{monitor.height})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => void applyToDesktop()}
+                  disabled={applying || !IN_TAURI}
+                >
+                  <Monitor size={15} aria-hidden="true" />
+                  {applying ? "Applying…" : "Set as desktop wallpaper"}
+                </button>
+              </>
             )}
             <button type="button" className="button" onClick={() => void reveal()}>
               <FolderOpen size={15} aria-hidden="true" /> Show in Explorer

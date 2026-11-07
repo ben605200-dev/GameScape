@@ -101,6 +101,8 @@ pub struct LastWallpaper {
     pub path: String,
     pub format: Option<String>,
     pub title: String,
+    /// The monitor it was applied to; `None` = all monitors.
+    pub monitor: Option<u32>,
 }
 
 /// Parses settings JSON, tolerating a UTF-8 BOM (editors and PowerShell

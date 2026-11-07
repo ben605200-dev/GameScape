@@ -19,7 +19,11 @@ export function HomePage() {
   const [health, setHealth] = useState<DbHealth | null>(null);
   const [catalogue, setCatalogue] = useState<CatalogueIndex | null>(null);
   const [checked, setChecked] = useState(false);
-  const [report, setReport] = useState<HostReport>({ surfaces: [], applied: null });
+  const [report, setReport] = useState<HostReport>({
+    surfaces: [],
+    applied: null,
+    monitors: [],
+  });
   const [busy, setBusy] = useState(false);
   const [rotation, setRotation] = useState<{ enabled: boolean; minutes: number } | null>(null);
 
@@ -91,9 +95,16 @@ export function HomePage() {
 
   const surfaces = report.surfaces;
   const applied = report.applied;
+  const pausedSuffix =
+    surfaces.length > 0 && surfaces[0].paused
+      ? ` · paused${surfaces[0].pausedReason ? ` (${surfaces[0].pausedReason})` : ""}`
+      : "";
+  const distinctTitles = new Set(surfaces.map((surface) => surface.title)).size;
   const hostNote =
     surfaces.length > 0
-      ? `${surfaces[0].title} · ${surfaces.length} monitor${surfaces.length === 1 ? "" : "s"}${surfaces[0].paused ? ` · paused${surfaces[0].pausedReason ? ` (${surfaces[0].pausedReason})` : ""}` : ""}`
+      ? distinctTitles > 1
+        ? `${distinctTitles} wallpapers on ${surfaces.length} monitors${pausedSuffix}`
+        : `${surfaces[0].title} · ${surfaces.length} monitor${surfaces.length === 1 ? "" : "s"}${pausedSuffix}`
       : applied
         ? `${applied.title} · ${applied.kind} · fitted edge to edge`
         : "Nothing applied — set a wallpaper from your library.";
