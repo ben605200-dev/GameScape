@@ -15,6 +15,7 @@ export default defineConfig(() => ({
       input: {
         index: "index.html",
         "wallpaper-host": "wallpaper-host.html",
+        widget: "widget.html",
         spike: "spike.html",
         "spike-interactive": "spike-interactive.html",
       },

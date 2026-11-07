@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GameScape Widget</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0f15;
+        color: #e8eef6;
+        font-family:
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        user-select: none;
+      }
+
+      #root {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 7%;
+        box-sizing: border-box;
+        background:
+          radial-gradient(
+            120% 120% at 0% 0%,
+            rgba(64, 128, 255, 0.18),
+            transparent 60%
+          ),
+          #0a0f15;
+        border: 1px solid rgba(120, 170, 255, 0.25);
+      }
+
+      .label {
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #7ea6d8;
+        margin-bottom: 4%;
+      }
+
+      .big {
+        font-size: min(18vh, 64px);
+        font-weight: 600;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .sub {
+        font-size: min(5vh, 16px);
+        color: #9fb6cf;
+        margin-top: 3%;
+      }
+
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        font-size: min(5vh, 15px);
+        margin-top: 4%;
+      }
+
+      .bar {
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.08);
+        margin-top: 3%;
+        overflow: hidden;
+      }
+
+      .bar > div {
+        height: 100%;
+        border-radius: 3px;
+        background: linear-gradient(90deg, #3f7dff, #6fd3ff);
+        width: 0%;
+        transition: width 0.5s ease;
+      }
+
+      .thumb {
+        margin-top: 5%;
+        height: 42%;
+        border-radius: 6px;
+        background-size: cover;
+        background-position: center;
+        background-color: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+
+      const params = new URLSearchParams(location.search);
+      const kind = params.get("kind") ?? "clock";
+      const id = params.get("id") ?? "";
+      const root = document.getElementById("root");
+
+      const el = (tag, className, text) => {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+
+      function renderClock() {
+        root.replaceChildren(
+          el("div", "label", "Clock"),
+          el("div", "big", "--:--"),
+          el("div", "sub", ""),
+        );
+        const time = root.querySelector(".big");
+        const date = root.querySelector(".sub");
+        const tick = () => {
+          const now = new Date();
+          time.textContent = now.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          date.textContent = now.toLocaleDateString([], {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          });
+        };
+        tick();
+        window.setInterval(tick, 1000);
+      }
+
+      function formatUptime(seconds) {
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        if (days > 0) return `${days}d ${hours}h`;
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        return `${minutes}m`;
+      }
+
+      function renderSystem() {
+        root.replaceChildren(
+          el("div", "label", "System"),
+          el("div", "row"),
+        );
+        const row = root.querySelector(".row");
+        const cpuLabel = el("span", "", "CPU");
+        const cpuValue = el("span", "", "0%");
+        row.append(cpuLabel, cpuValue);
+        const cpuBar = el("div", "bar");
+        const cpuFill = el("div");
+        cpuBar.append(cpuFill);
+        const row2 = el("div", "row");
+        const ramLabel = el("span", "", "RAM");
+        const ramValue = el("span", "", "0%");
+        row2.append(ramLabel, ramValue);
+        const ramBar = el("div", "bar");
+        const ramFill = el("div");
+        ramBar.append(ramFill);
+        const uptime = el("div", "sub", "");
+        root.append(cpuBar, row2, ramBar, uptime);
+
+        const poll = async () => {
+          try {
+            const stats = await invoke("system_stats");
+            cpuValue.textContent = `${Math.round(stats.cpuPercent)}%`;
+            cpuFill.style.width = `${Math.max(2, Math.min(100, stats.cpuPercent))}%`;
+            ramValue.textContent = `${Math.round(stats.memoryPercent)}%`;
+            ramFill.style.width = `${Math.max(2, Math.min(100, stats.memoryPercent))}%`;
+            uptime.textContent = `Up ${formatUptime(stats.uptimeSeconds)} · ${stats.memoryUsedMb} / ${stats.memoryTotalMb} MB`;
+          } catch {
+            uptime.textContent = "Stats unavailable";
+          }
+        };
+        void poll();
+        window.setInterval(() => void poll(), 2000);
+      }
+
+      async function renderWallpaper() {
+        root.replaceChildren(
+          el("div", "label", "Wallpaper"),
+          el("div", "sub", "Loading…"),
+        );
+        const title = el("div", "sub", "");
+        const kindLine = el("div", "sub", "");
+        const thumb = el("div", "thumb");
+        try {
+          const report = await invoke("host_status");
+          const applied = report?.applied ?? null;
+          const surfaces = report?.surfaces ?? [];
+          const label = applied ? applied.title : "Idle";
+          root.replaceChildren(
+            el("div", "label", "Wallpaper"),
+            title,
+            kindLine,
+            thumb,
+          );
+          title.textContent = label;
+          title.style.color = "#e8eef6";
+          title.style.fontSize = "min(6vh, 20px)";
+          let previewPath = null;
+          let previewKind = applied?.kind ?? "";
+          if (surfaces.length > 0) {
+            previewKind = surfaces[0].kind;
+            const lib = await invoke("library_list");
+            const item = (lib ?? []).find(
+              (entry) => entry.id === surfaces[0].mediaId,
+            );
+            previewPath = item?.thumbPath ?? item?.path ?? null;
+          } else if (applied?.kind === "static") {
+            const lib = await invoke("library_list");
+            const item = (lib ?? []).find(
+              (entry) => entry.id === applied.mediaId,
+            );
+            previewPath = item?.thumbPath ?? item?.path ?? null;
+          }
+          kindLine.textContent = applied
+            ? `${previewKind}${surfaces.length > 0 ? ` · ${surfaces.length} monitor${surfaces.length === 1 ? "" : "s"}` : ""}`
+            : "Nothing applied";
+          if (previewPath) {
+            thumb.style.backgroundImage = `url("${convertFileSrc(previewPath)}")`;
+          }
+        } catch {
+          root.replaceChildren(
+            el("div", "label", "Wallpaper"),
+            el("div", "sub", "Unavailable"),
+          );
+        }
+      }
+
+      if (kind === "system") renderSystem();
+      else if (kind === "wallpaper") void renderWallpaper();
+      else renderClock();
+    </script>
+  </body>
+</html>

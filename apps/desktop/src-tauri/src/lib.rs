@@ -7,6 +7,7 @@ mod catalogue;
 mod desktop_host;
 mod library;
 mod storage;
+mod system_info;
 
 #[cfg(windows)]
 mod spike_s1;
@@ -287,6 +288,116 @@ async fn host_restore_previous(
     // surfaces first, then put the previous (static) wallpapers back.
     desktop_host::stop_all(&app, host.inner())?;
     desktop_host::restore_previous(state.inner())
+}
+
+/* ------------------------------------------------------------------ */
+/* Widgets                                                             */
+/* ------------------------------------------------------------------ */
+
+#[tauri::command]
+fn widgets_list(state: tauri::State<'_, AppState>) -> Result<Vec<storage::WidgetRow>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    storage::list_widgets(&conn)
+}
+
+// Widget commands are async: they create/destroy desktop-layer windows,
+// which must be dispatched from a worker thread (same rule as surfaces).
+#[tauri::command]
+async fn widget_create(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+    kind: String,
+    monitor: Option<u32>,
+) -> Result<i64, String> {
+    if !matches!(kind.as_str(), "clock" | "system" | "wallpaper") {
+        return Err(format!("unknown widget kind: {kind}"));
+    }
+    let id = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("database lock poisoned: {e}"))?;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM widgets", [], |row| row.get(0))
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO widgets (kind, monitor, x, y) VALUES (?1, ?2, 40, ?3)",
+            rusqlite::params![kind, monitor.unwrap_or(0), 40 + (count % 6) * 60],
+        )
+        .map_err(|e| format!("cannot create the widget: {e}"))?;
+        conn.last_insert_rowid()
+    };
+    desktop_host::sync_widgets(&app, host.inner(), state.inner())?;
+    Ok(id)
+}
+
+#[tauri::command]
+async fn widget_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+    id: i64,
+    enabled: bool,
+    monitor: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let width = width.clamp(120, 2000);
+    let height = height.clamp(80, 1200);
+    {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("database lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE widgets
+             SET enabled = ?1, monitor = ?2, x = ?3, y = ?4, width = ?5, height = ?6
+             WHERE id = ?7",
+            rusqlite::params![enabled as i64, monitor, x, y, width, height, id],
+        )
+        .map_err(|e| format!("cannot update the widget: {e}"))?;
+    }
+    desktop_host::sync_widgets(&app, host.inner(), state.inner())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn widget_remove(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+    id: i64,
+) -> Result<(), String> {
+    {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("database lock poisoned: {e}"))?;
+        conn.execute("DELETE FROM widgets WHERE id = ?1", [id])
+            .map_err(|e| format!("cannot remove the widget: {e}"))?;
+    }
+    desktop_host::sync_widgets(&app, host.inner(), state.inner())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn widgets_sync(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+) -> Result<usize, String> {
+    desktop_host::sync_widgets(&app, host.inner(), state.inner())
+}
+
+#[tauri::command]
+fn system_stats() -> Result<system_info::SystemStats, String> {
+    system_info::sample()
 }
 
 #[tauri::command]
@@ -608,6 +719,12 @@ pub fn run() {
             settings_get,
             settings_set,
             host_turn_off,
+            widgets_list,
+            widget_create,
+            widget_update,
+            widget_remove,
+            widgets_sync,
+            system_stats,
             db_health,
             catalogue_load,
             import_paths,

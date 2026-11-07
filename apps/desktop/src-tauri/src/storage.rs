@@ -228,8 +228,30 @@ const V4_SQL: &str = r#"
 ALTER TABLE wallpaper_state ADD COLUMN previous_position INTEGER;
 "#;
 
+/// Schema v5 — desktop widgets placed on the wallpaper layer.
+const V5_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS widgets (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,
+  monitor INTEGER NOT NULL DEFAULT 0,
+  x INTEGER NOT NULL DEFAULT 40,
+  y INTEGER NOT NULL DEFAULT 40,
+  width INTEGER NOT NULL DEFAULT 360,
+  height INTEGER NOT NULL DEFAULT 220,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  settings TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
+
 fn migrations() -> &'static [(i64, &'static str)] {
-    &[(1, V1_SQL), (2, V2_SQL), (3, V3_SQL), (4, V4_SQL)]
+    &[
+        (1, V1_SQL),
+        (2, V2_SQL),
+        (3, V3_SQL),
+        (4, V4_SQL),
+        (5, V5_SQL),
+    ]
 }
 
 pub fn open_and_migrate() -> Result<Connection, String> {
@@ -287,6 +309,54 @@ pub fn schema_version(conn: &Connection) -> Result<i64, String> {
         |row| row.get(0),
     )
     .map_err(|e| format!("cannot read schema version: {e}"))
+}
+
+/* ------------------------------------------------------------------ */
+/* Widgets                                                             */
+/* ------------------------------------------------------------------ */
+
+/// A configured desktop widget (row of the `widgets` table).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetRow {
+    pub id: i64,
+    pub kind: String,
+    pub monitor: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub enabled: bool,
+    pub settings: Option<String>,
+}
+
+pub fn list_widgets(conn: &Connection) -> Result<Vec<WidgetRow>, String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, kind, monitor, x, y, width, height, enabled, settings
+             FROM widgets ORDER BY id",
+        )
+        .map_err(|error| format!("cannot read widgets: {error}"))?;
+    let mapped = statement
+        .query_map([], |row| {
+            Ok(WidgetRow {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                monitor: row.get::<_, i64>(2)?.max(0) as u32,
+                x: row.get(3)?,
+                y: row.get(4)?,
+                width: row.get::<_, i64>(5)?.max(0) as u32,
+                height: row.get::<_, i64>(6)?.max(0) as u32,
+                enabled: row.get::<_, i64>(7)? != 0,
+                settings: row.get(8)?,
+            })
+        })
+        .map_err(|error| format!("cannot read widgets: {error}"))?;
+    let mut rows = Vec::new();
+    for row in mapped {
+        rows.push(row.map_err(|error| format!("cannot read widgets: {error}"))?);
+    }
+    Ok(rows)
 }
 
 /* ------------------------------------------------------------------ */

@@ -354,6 +354,54 @@ export async function hostStatus(): Promise<HostReport> {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Widgets                                                             */
+/* ------------------------------------------------------------------ */
+
+export interface WidgetEntry {
+  id: number;
+  kind: string;
+  monitor: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  enabled: boolean;
+  settings: string | null;
+}
+
+export interface SystemStats {
+  cpuPercent: number;
+  memoryPercent: number;
+  memoryUsedMb: number;
+  memoryTotalMb: number;
+  uptimeSeconds: number;
+}
+
+export const widgetsList = () => runAction<WidgetEntry[]>("widgets_list");
+
+export const widgetCreate = (kind: string, monitor?: number | null) =>
+  runAction<number>("widget_create", { kind, monitor: monitor ?? null });
+
+export const widgetUpdate = (
+  id: number,
+  patch: {
+    enabled: boolean;
+    monitor: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  },
+) => runAction<void>("widget_update", { id, ...patch });
+
+export const widgetRemove = (id: number) =>
+  runAction<void>("widget_remove", { id });
+
+export const widgetsSync = () => runAction<number>("widgets_sync");
+
+export const systemStats = () => runAction<SystemStats>("system_stats");
+
 export const collectionsList = () => runAction<CollectionSummary[]>("collections_list");
 
 export const collectionCreate = (name: string) =>

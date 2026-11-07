@@ -119,6 +119,31 @@ struct HostInner {
     governor_reason: Option<String>,
     /// When the wallpaper last changed (rotation scheduling).
     last_rotation: Option<Instant>,
+    /// Live widget windows by widget id.
+    widgets: HashMap<i64, WidgetWindow>,
+}
+
+/// A live widget window on the desktop layer.
+#[derive(Clone)]
+struct WidgetWindow {
+    label: String,
+    kind: String,
+    monitor: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+impl WidgetWindow {
+    fn matches(&self, row: &storage::WidgetRow) -> bool {
+        self.kind == row.kind
+            && self.monitor == row.monitor
+            && self.x == row.x
+            && self.y == row.y
+            && self.width == row.width
+            && self.height == row.height
+    }
 }
 
 impl HostState {
@@ -131,6 +156,7 @@ impl HostState {
                 governor_paused: false,
                 governor_reason: None,
                 last_rotation: Some(Instant::now()),
+                widgets: HashMap::new(),
             }),
         }
     }
@@ -1228,6 +1254,155 @@ pub fn set_paused(app: &AppHandle, host: &HostState, paused: bool) -> Result<(),
 }
 
 /* ------------------------------------------------------------------ */
+/* Widgets                                                             */
+/* ------------------------------------------------------------------ */
+
+fn create_widget_window(
+    app: &AppHandle,
+    layer: &LayerHost,
+    monitor: &Monitor,
+    row: &storage::WidgetRow,
+) -> Result<WidgetWindow, String> {
+    let label = format!("gs-widget-{}", row.id);
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.destroy();
+    }
+
+    let page = format!("widget.html?kind={}&id={}", url_encode(&row.kind), row.id);
+    let window = WebviewWindowBuilder::new(app, label.as_str(), WebviewUrl::App(page.into()))
+        .title("GameScape Widget")
+        .decorations(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .focused(false)
+        .visible(false)
+        .background_color(Color(10, 15, 20, 255))
+        .build()
+        .map_err(|error| format!("cannot create a widget window: {error}"))?;
+
+    let hwnd = window
+        .hwnd()
+        .map_err(|error| format!("widget has no window handle: {error}"))?;
+
+    let position = monitor.position();
+    let rect = (
+        position.x + row.x,
+        position.y + row.y,
+        row.width.max(80),
+        row.height.max(60),
+    );
+    match attach_surface(hwnd, layer, rect) {
+        Ok(true) => {}
+        Ok(false) => {
+            let _ = window.destroy();
+            return Err("widget did not attach to the desktop layer".to_string());
+        }
+        Err(error) => {
+            let _ = window.destroy();
+            return Err(error);
+        }
+    }
+
+    log_line(&format!(
+        "widget[{}] id={} hwnd=0x{:X} placed monitor={} rect={},{} {}x{}",
+        row.kind,
+        row.id,
+        hwnd.0 as usize,
+        row.monitor + 1,
+        row.x,
+        row.y,
+        row.width,
+        row.height
+    ));
+
+    Ok(WidgetWindow {
+        label,
+        kind: row.kind.clone(),
+        monitor: row.monitor,
+        x: row.x,
+        y: row.y,
+        width: row.width,
+        height: row.height,
+    })
+}
+
+/// Brings the desktop layer in line with the widgets table: creates new
+/// windows, rebuilds changed ones, removes deleted/disabled ones.
+pub fn sync_widgets(app: &AppHandle, host: &HostState, state: &AppState) -> Result<usize, String> {
+    let rows: Vec<storage::WidgetRow> = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("database lock poisoned: {e}"))?;
+        storage::list_widgets(&conn)?
+    };
+    let enabled: Vec<storage::WidgetRow> = rows.into_iter().filter(|row| row.enabled).collect();
+
+    let monitors = app
+        .available_monitors()
+        .map_err(|error| format!("cannot list monitors: {error}"))?;
+    let layer = if enabled.is_empty() {
+        None
+    } else {
+        Some(discover_layer()?)
+    };
+
+    let existing = {
+        let mut inner = host
+            .inner
+            .lock()
+            .map_err(|e| format!("host state lock poisoned: {e}"))?;
+        std::mem::take(&mut inner.widgets)
+    };
+
+    let mut next: HashMap<i64, WidgetWindow> = HashMap::new();
+    for row in &enabled {
+        if row.monitor as usize >= monitors.len() {
+            log_line(&format!(
+                "widget[{}] id={} kept off: monitor {} does not exist",
+                row.kind,
+                row.id,
+                row.monitor + 1
+            ));
+            continue;
+        }
+        let window = match existing.get(&row.id) {
+            Some(window) if window.matches(row) => window.clone(),
+            Some(stale) => {
+                if let Some(window) = app.get_webview_window(&stale.label) {
+                    let _ = window.destroy();
+                }
+                create_widget_window(app, layer.as_ref().unwrap(), &monitors[row.monitor as usize], row)?
+            }
+            None => {
+                create_widget_window(app, layer.as_ref().unwrap(), &monitors[row.monitor as usize], row)?
+            }
+        };
+        next.insert(row.id, window);
+    }
+
+    for (id, window) in &existing {
+        if !next.contains_key(id) {
+            if let Some(stale) = app.get_webview_window(&window.label) {
+                let _ = stale.destroy();
+            }
+        }
+    }
+
+    let placed = next.len();
+    {
+        let mut inner = host
+            .inner
+            .lock()
+            .map_err(|e| format!("host state lock poisoned: {e}"))?;
+        inner.widgets = next;
+    }
+    log_line(&format!("widgets synced: {placed} on the desktop"));
+    let _ = app.emit("host:state", ());
+    Ok(placed)
+}
+
+/* ------------------------------------------------------------------ */
 /* Rotation                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -1426,6 +1601,14 @@ pub fn init(app: &AppHandle) {
             }
             log_line("surfaces re-attached");
             let _ = apply_pause_state(&handle, &host);
+
+            // Widgets live on the same layer; recreate them from the DB.
+            if let Ok(mut inner) = host.inner.lock() {
+                inner.widgets.clear();
+            }
+            if let Err(error) = sync_widgets(&handle, &host, &state) {
+                log_line(&format!("widget re-attach failed: {error}"));
+            }
         }
     });
 }
@@ -1464,6 +1647,12 @@ pub fn startup_restore(app: &AppHandle) {
 
         let state = handle.state::<AppState>();
         let host = handle.state::<HostState>();
+
+        // Widgets are independent of wallpaper state; place them first.
+        if let Err(error) = sync_widgets(&handle, &host, &state) {
+            log_line(&format!("startup widget sync failed: {error}"));
+        }
+
         let (enabled, last) = {
             let Ok(settings) = state.settings.lock() else {
                 return;
