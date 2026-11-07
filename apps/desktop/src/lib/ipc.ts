@@ -297,10 +297,23 @@ export const libraryReadData = (id: number) =>
 
 export interface HostSurface {
   monitorIndex: number;
+  mediaId: number;
   kind: string;
   title: string;
   paused: boolean;
   pausedReason: string | null;
+}
+
+/** The wallpaper GameScape currently has applied. */
+export interface AppliedWallpaper {
+  kind: string;
+  mediaId: number;
+  title: string;
+}
+
+export interface HostReport {
+  surfaces: HostSurface[];
+  applied: AppliedWallpaper | null;
 }
 
 /** Apply a library item to every monitor (static image or animated media). */
@@ -314,12 +327,15 @@ export const hostSetPaused = (paused: boolean) =>
 
 export const hostRestorePrevious = () => runAction<void>("host_restore_previous");
 
-export async function hostStatus(): Promise<HostSurface[]> {
-  if (!IN_TAURI) return [];
+/** Turn wallpapers off entirely (restore previous, remember the off choice). */
+export const hostTurnOff = () => runAction<void>("host_turn_off");
+
+export async function hostStatus(): Promise<HostReport> {
+  if (!IN_TAURI) return { surfaces: [], applied: null };
   try {
-    return await invoke<HostSurface[]>("host_status");
+    return await invoke<HostReport>("host_status");
   } catch {
-    return [];
+    return { surfaces: [], applied: null };
   }
 }
 

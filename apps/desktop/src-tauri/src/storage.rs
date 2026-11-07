@@ -81,6 +81,22 @@ pub struct Settings {
     /// How wallpapers fill the screen: "fill" (default), "fit", "stretch",
     /// "center" or "span".
     pub wallpaper_fit: Option<String>,
+    /// The wallpaper GameScape last applied (startup restore).
+    pub last_wallpaper: Option<LastWallpaper>,
+    /// `Some(false)` when the user explicitly turned wallpapers off.
+    pub wallpaper_enabled: Option<bool>,
+}
+
+/// The last wallpaper GameScape applied, enough to re-apply it on launch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastWallpaper {
+    /// "static" | "video" | "gif".
+    pub kind: String,
+    pub media_id: i64,
+    pub path: String,
+    pub format: Option<String>,
+    pub title: String,
 }
 
 pub fn load_settings() -> Settings {

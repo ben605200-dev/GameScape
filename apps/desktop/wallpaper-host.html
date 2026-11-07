@@ -12,18 +12,23 @@
         background: #000;
       }
 
-      #media {
+      /* Hard rules: the media fills the whole surface, always. */
+      #video,
+      #image {
         position: fixed;
-        inset: 0;
-        width: 100%;
-        height: 100%;
+        left: 0;
+        top: 0;
+        width: 100vw;
+        height: 100vh;
         object-fit: cover;
         display: none;
+        background: #000;
       }
     </style>
   </head>
   <body>
-    <video id="media" muted loop playsinline></video>
+    <video id="video" muted loop playsinline></video>
+    <img id="image" alt="" />
     <script type="module">
       import { convertFileSrc } from "@tauri-apps/api/core";
 
@@ -36,42 +41,60 @@
       const objectFit =
         { fill: "cover", span: "cover", fit: "contain", stretch: "fill", center: "none" }[fit] ??
         "cover";
-      const media = document.getElementById("media");
 
-      const src = convertFileSrc(filePath);
-      if (kind === "gif") {
-        // An animated GIF renders in a plain img element; reuse the <video>
-        // tag only for video media.
-        const image = document.createElement("img");
-        image.id = "media";
-        image.src = src;
-        image.alt = "";
-        image.style.display = "block";
-        image.style.objectFit = objectFit;
-        media.replaceWith(image);
-      } else {
-        media.src = src;
-        media.style.display = "block";
-        media.style.objectFit = objectFit;
-        if (!startPaused) {
-          media.play().catch(() => {
-            /* autoplay blocked — stays on the first frame */
-          });
-        }
+      const video = document.getElementById("video");
+      const image = document.getElementById("image");
+      const media = kind === "gif" ? image : video;
+
+      media.style.objectFit = objectFit;
+      media.style.display = "block";
+      let sourceError = "";
+      try {
+        media.src = convertFileSrc(filePath);
+      } catch (error) {
+        sourceError = String(error);
+      }
+      if (kind !== "gif" && !startPaused) {
+        video.play().catch(() => {
+          /* autoplay blocked — stays on the first frame */
+        });
       }
 
       // Governor/UI control surface (called via webview eval).
       window.__gsHost = {
         setPaused(paused) {
-          const element = document.getElementById("media");
-          if (!element || element.tagName !== "VIDEO") return;
+          // Animated GIFs cannot be paused simply; only video responds.
+          if (kind === "gif") return;
           if (paused) {
-            element.pause();
+            video.pause();
           } else {
-            element.play().catch(() => {});
+            video.play().catch(() => {});
           }
         },
       };
+
+      // Diagnostics: the surface window title reports what this page sees,
+      // so verification harnesses can read it with GetWindowText.
+      window.setTimeout(() => {
+        const s = getComputedStyle(media);
+        document.title =
+          "GSDBG " +
+          JSON.stringify({
+            kind,
+            tag: media.tagName,
+            cw: media.clientWidth,
+            ch: media.clientHeight,
+            nw: media.naturalWidth,
+            nh: media.naturalHeight,
+            w: s.width,
+            h: s.height,
+            pos: s.position,
+            fit: s.objectFit,
+            disp: s.display,
+            src: (media.currentSrc || media.src || "").slice(-50),
+            err: sourceError.slice(0, 80),
+          });
+      }, 2000);
     </script>
   </body>
 </html>

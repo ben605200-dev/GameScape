@@ -266,11 +266,27 @@ async fn host_apply_media(
     if kind == "static" {
         desktop_host::stop_all(&app, host.inner())?;
         let applied = desktop_host::apply_static(state.inner(), &path, Some(&format_value))?;
+        desktop_host::remember_last_wallpaper(
+            state.inner(),
+            "static",
+            media_id,
+            &path,
+            Some(&format_value),
+            &title,
+        );
         desktop_host::log_line(&format!("HOST_APPLY_OK static {applied}"));
         Ok("static".to_string())
     } else {
         let (fit_name, _) = desktop_host::configured_fit(state.inner());
-        desktop_host::apply_animated(&app, host.inner(), &path, kind, &title, fit_name)?;
+        desktop_host::apply_animated(&app, host.inner(), &path, kind, &title, media_id, fit_name)?;
+        desktop_host::remember_last_wallpaper(
+            state.inner(),
+            kind,
+            media_id,
+            &path,
+            Some(&format_value),
+            &title,
+        );
         desktop_host::log_line(&format!("HOST_APPLY_OK {kind} {title}"));
         Ok(kind.to_string())
     }
@@ -285,8 +301,22 @@ async fn host_stop(
 }
 
 #[tauri::command]
-fn host_status(host: tauri::State<'_, desktop_host::HostState>) -> Vec<desktop_host::HostSurface> {
-    desktop_host::status(host.inner())
+fn host_status(
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+) -> desktop_host::HostReport {
+    desktop_host::report(host.inner(), state.inner())
+}
+
+/// Turn wallpapers off entirely: stop animation, put the previous
+/// wallpaper back, and stay off on next launch until re-applied.
+#[tauri::command]
+async fn host_turn_off(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+) -> Result<(), String> {
+    desktop_host::turn_off(&app, state.inner(), host.inner())
 }
 
 #[tauri::command]
@@ -525,6 +555,7 @@ pub fn run() {
             app.manage(state);
             app.manage(desktop_host::HostState::new());
             desktop_host::init(app.handle());
+            desktop_host::startup_restore(app.handle());
 
             dev_automation(app.handle().clone());
 
@@ -547,6 +578,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings_get,
             settings_set,
+            host_turn_off,
             db_health,
             catalogue_load,
             import_paths,

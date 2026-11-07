@@ -8,6 +8,8 @@ import {
   collectionsList,
   collectionSetMembership,
   hostApplyMedia,
+  hostStatus,
+  hostTurnOff,
   IN_TAURI,
   libraryReveal,
   libraryUpdate,
@@ -50,6 +52,8 @@ export function LibraryItemPage() {
   const [newCollection, setNewCollection] = useState("");
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<string | null>(null);
+  const [appliedId, setAppliedId] = useState<number | null>(null);
+  const isApplied = appliedId === itemId;
 
   const load = useCallback(async () => {
     const list = await listLibrary();
@@ -74,6 +78,8 @@ export function LibraryItemPage() {
         ? new Set(mem.value.map((m) => `${m.collectionId}:${m.mediaId}`))
         : new Set(),
     );
+    const report = await hostStatus();
+    setAppliedId(report.applied?.mediaId ?? null);
     setChecked(true);
   }, [itemId]);
 
@@ -143,11 +149,26 @@ export function LibraryItemPage() {
     setError(null);
     const result = await hostApplyMedia(itemId);
     if (result.ok) {
+      setAppliedId(itemId);
       setApplyResult(
         result.value === "static"
           ? "Applied as desktop wallpaper"
           : `Animating on your desktop (${result.value})`,
       );
+      window.setTimeout(() => setApplyResult(null), 4000);
+    } else {
+      setError(result.error);
+    }
+    setApplying(false);
+  };
+
+  const turnOffDesktop = async () => {
+    setApplying(true);
+    setError(null);
+    const result = await hostTurnOff();
+    if (result.ok) {
+      setAppliedId(null);
+      setApplyResult("Desktop wallpaper turned off");
       window.setTimeout(() => setApplyResult(null), 4000);
     } else {
       setError(result.error);
@@ -262,15 +283,27 @@ export function LibraryItemPage() {
           </dl>
           <span className="path-text">{item.filePath}</span>
           <div className="row">
-            <button
-              type="button"
-              className="button button-primary"
-              onClick={() => void applyToDesktop()}
-              disabled={applying || !IN_TAURI}
-            >
-              <Monitor size={15} aria-hidden="true" />
-              {applying ? "Applying…" : "Set as desktop wallpaper"}
-            </button>
+            {isApplied ? (
+              <button
+                type="button"
+                className="button"
+                onClick={() => void turnOffDesktop()}
+                disabled={applying || !IN_TAURI}
+              >
+                <Monitor size={15} aria-hidden="true" />
+                {applying ? "Turning off…" : "Turn off desktop wallpaper"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => void applyToDesktop()}
+                disabled={applying || !IN_TAURI}
+              >
+                <Monitor size={15} aria-hidden="true" />
+                {applying ? "Applying…" : "Set as desktop wallpaper"}
+              </button>
+            )}
             <button type="button" className="button" onClick={() => void reveal()}>
               <FolderOpen size={15} aria-hidden="true" /> Show in Explorer
             </button>

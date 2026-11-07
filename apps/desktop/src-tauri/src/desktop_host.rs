@@ -19,7 +19,7 @@ use std::thread;
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, Monitor, WebviewUrl, WebviewWindowBuilder};
+use tauri::{window::Color, AppHandle, Emitter, Manager, Monitor, WebviewUrl, WebviewWindowBuilder};
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM};
@@ -57,6 +57,7 @@ const WM_SPAWN_WORKER: u32 = 0x052C;
 #[serde(rename_all = "camelCase")]
 pub struct HostSurface {
     pub monitor_index: u32,
+    pub media_id: i64,
     pub kind: String,
     pub title: String,
     pub paused: bool,
@@ -65,8 +66,26 @@ pub struct HostSurface {
     pub paused_reason: Option<String>,
 }
 
+/// The wallpaper GameScape currently has applied (for UI state and toggles).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppliedWallpaper {
+    pub kind: String,
+    pub media_id: i64,
+    pub title: String,
+}
+
+/// Everything the UI needs to render desktop-host state.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostReport {
+    pub surfaces: Vec<HostSurface>,
+    pub applied: Option<AppliedWallpaper>,
+}
+
 struct Surface {
     monitor_index: u32,
+    media_id: i64,
     label: String,
     kind: String,
     title: String,
@@ -672,6 +691,10 @@ pub fn restore_previous(state: &AppState) -> Result<(), String> {
     if let Ok(conn) = state.db.lock() {
         let _ = conn.execute("UPDATE wallpaper_state SET applied_path = NULL", []);
     }
+    if let Ok(mut settings) = state.settings.lock() {
+        settings.last_wallpaper = None;
+        let _ = storage::save_settings(&settings);
+    }
     match previous_position {
         Some(position) => log_line(&format!(
             "previous wallpaper restored (fit: {})",
@@ -704,6 +727,7 @@ fn create_surface(
     app: &AppHandle,
     monitor: &Monitor,
     index: usize,
+    media_id: i64,
     media_path: &str,
     kind: &str,
     title: &str,
@@ -736,6 +760,13 @@ fn create_surface(
         .skip_taskbar(true)
         .focused(false)
         .visible(false)
+        // Black behind the media: no white flash while the page loads.
+        .background_color(Color(0, 0, 0, 255))
+        // Surface pages report diagnostics through their document title
+        // (used by local verification harnesses); mirror it on the window.
+        .on_document_title_changed(|window, title| {
+            let _ = window.set_title(&title);
+        })
         .build()
         .map_err(|error| format!("cannot create a wallpaper surface: {error}"))?;
 
@@ -743,11 +774,18 @@ fn create_surface(
         .hwnd()
         .map_err(|error| format!("surface has no window handle: {error}"))?;
 
-    match attach_surface(
-        hwnd,
-        layer,
-        (position.x, position.y, size.width, size.height),
-    ) {
+    // Over-scan past every monitor edge so window chrome (the webview
+    // content is inset ~8px inside the window frame on this class) always
+    // lands off-screen and never shows as lines at the screen sides.
+    const OVERSCAN: i32 = 12;
+    let rect = (
+        position.x - OVERSCAN,
+        position.y - OVERSCAN,
+        (size.width as i32 + OVERSCAN * 2) as u32,
+        (size.height as i32 + OVERSCAN * 2) as u32,
+    );
+
+    match attach_surface(hwnd, layer, rect) {
         Ok(true) => {}
         Ok(false) => {
             let _ = window.destroy();
@@ -769,6 +807,7 @@ fn create_surface(
 
     Ok(Surface {
         monitor_index: index as u32,
+        media_id,
         label,
         kind: kind.to_string(),
         title: title.to_string(),
@@ -784,6 +823,7 @@ pub fn apply_animated(
     media_path: &str,
     kind: &str,
     title: &str,
+    media_id: i64,
     fit: &str,
 ) -> Result<(), String> {
     stop_all(app, host)?;
@@ -810,6 +850,7 @@ pub fn apply_animated(
             app,
             monitor,
             index,
+            media_id,
             media_path,
             kind,
             title,
@@ -906,6 +947,7 @@ pub fn status(host: &HostState) -> Vec<HostSurface> {
                 .values()
                 .map(|surface| HostSurface {
                     monitor_index: surface.monitor_index,
+                    media_id: surface.media_id,
                     kind: surface.kind.clone(),
                     title: surface.title.clone(),
                     paused: effective,
@@ -916,6 +958,62 @@ pub fn status(host: &HostState) -> Vec<HostSurface> {
             surfaces
         })
         .unwrap_or_default()
+}
+
+/// Surfaces + the last applied wallpaper — what the UI renders from.
+pub fn report(host: &HostState, state: &AppState) -> HostReport {
+    let applied = state
+        .settings
+        .lock()
+        .ok()
+        .and_then(|settings| settings.last_wallpaper.clone())
+        .map(|last| AppliedWallpaper {
+            kind: last.kind,
+            media_id: last.media_id,
+            title: last.title,
+        });
+    HostReport {
+        surfaces: status(host),
+        applied,
+    }
+}
+
+/// Remembers the wallpaper just applied (enables startup restore).
+pub fn remember_last_wallpaper(
+    state: &AppState,
+    kind: &str,
+    media_id: i64,
+    path: &str,
+    format: Option<&str>,
+    title: &str,
+) {
+    if let Ok(mut settings) = state.settings.lock() {
+        settings.last_wallpaper = Some(storage::LastWallpaper {
+            kind: kind.to_string(),
+            media_id,
+            path: path.to_string(),
+            format: format.map(|value| value.to_string()),
+            title: title.to_string(),
+        });
+        settings.wallpaper_enabled = Some(true);
+        let _ = storage::save_settings(&settings);
+    }
+}
+
+/// Turn everything off: stop animations, put the previous wallpaper back,
+/// and remember that the user turned wallpapers off (no startup restore).
+pub fn turn_off(app: &AppHandle, state: &AppState, host: &HostState) -> Result<(), String> {
+    stop_all(app, host)?;
+    if let Err(error) = restore_previous(state) {
+        log_line(&format!("turn off: nothing to restore ({error})"));
+    }
+    if let Ok(mut settings) = state.settings.lock() {
+        settings.last_wallpaper = None;
+        settings.wallpaper_enabled = Some(false);
+        let _ = storage::save_settings(&settings);
+    }
+    log_line("wallpaper turned off");
+    Ok(())
 }
 
 /// Manual pause from the UI. The governor layers on top of this, so a
@@ -957,13 +1055,14 @@ pub fn init(app: &AppHandle) {
             }
 
             log_line("desktop layer lost (explorer restart?) - re-attaching");
-            let specs: Vec<(String, String, String, String)> = {
+            let specs: Vec<(i64, String, String, String, String)> = {
                 let Ok(inner) = host.inner.lock() else { continue };
                 inner
                     .surfaces
                     .values()
                     .map(|surface| {
                         (
+                            surface.media_id,
                             surface.media_path.clone(),
                             surface.kind.clone(),
                             surface.title.clone(),
@@ -994,9 +1093,18 @@ pub fn init(app: &AppHandle) {
                 .unwrap_or(false);
             let mut created: Vec<Surface> = Vec::new();
             for (index, monitor) in monitors.iter().enumerate() {
-                if let Some((path, kind, title, fit)) = specs.get(index) {
+                if let Some((media_id, path, kind, title, fit)) = specs.get(index) {
                     match create_surface(
-                        &handle, monitor, index, path, kind, title, fit, start_paused, &layer,
+                        &handle,
+                        monitor,
+                        index,
+                        *media_id,
+                        path,
+                        kind,
+                        title,
+                        fit,
+                        start_paused,
+                        &layer,
                     ) {
                         Ok(surface) => created.push(surface),
                         Err(error) => {
@@ -1014,6 +1122,82 @@ pub fn init(app: &AppHandle) {
             }
             log_line("surfaces re-attached");
             let _ = apply_pause_state(&handle, &host);
+        }
+    });
+}
+
+/* ------------------------------------------------------------------ */
+/* Startup restore                                                     */
+/* ------------------------------------------------------------------ */
+
+/// True when local test harnesses drive this instance — they must not
+/// inherit a "restore the last wallpaper" surprise at launch.
+fn dev_environment() -> bool {
+    if std::env::var("GAMESCAPE_DEV_ALLOW_RESTORE").is_ok() {
+        return false;
+    }
+    [
+        "GAMESCAPE_START_HASH",
+        "GAMESCAPE_DEV_SCRIPT",
+        "GAMESCAPE_DEV_IMPORT",
+        "GAMESCAPE_SPIKE_OUT",
+        "GAMESCAPE_SPIKE_S1",
+        "GAMESCAPE_SPIKE_INTERACTIVE",
+    ]
+    .iter()
+    .any(|name| std::env::var(name).map(|value| !value.is_empty()).unwrap_or(false))
+}
+
+/// Re-applies the last wallpaper a few seconds after launch (unless the
+/// user turned wallpapers off or a test harness is driving the app).
+pub fn startup_restore(app: &AppHandle) {
+    let handle = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(4));
+        if dev_environment() {
+            return;
+        }
+
+        let state = handle.state::<AppState>();
+        let host = handle.state::<HostState>();
+        let (enabled, last) = {
+            let Ok(settings) = state.settings.lock() else {
+                return;
+            };
+            (
+                settings.wallpaper_enabled.unwrap_or(true),
+                settings.last_wallpaper.clone(),
+            )
+        };
+        if !enabled {
+            log_line("startup restore: skipped (wallpapers turned off)");
+            return;
+        }
+        let Some(last) = last else {
+            return;
+        };
+        if !std::path::Path::new(&last.path).exists() {
+            log_line("startup restore: skipped (file missing)");
+            return;
+        }
+
+        let result = if last.kind == "static" {
+            apply_static(state.inner(), &last.path, last.format.as_deref()).map(|_| ())
+        } else {
+            let (fit_name, _) = configured_fit(state.inner());
+            apply_animated(
+                &handle,
+                host.inner(),
+                &last.path,
+                &last.kind,
+                &last.title,
+                last.media_id,
+                fit_name,
+            )
+        };
+        match result {
+            Ok(()) => log_line(&format!("startup restore: {} {}", last.kind, last.title)),
+            Err(error) => log_line(&format!("startup restore failed: {error}")),
         }
     });
 }
