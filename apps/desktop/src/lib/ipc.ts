@@ -21,6 +21,10 @@ export interface AppSettings {
   libraryDir?: string | null;
   /** How applied wallpapers fill the screen: fill | fit | stretch | center | span. */
   wallpaperFit?: string | null;
+  /** Rotate the applied wallpaper through the library on a schedule. */
+  rotationEnabled?: boolean | null;
+  /** Rotation interval in minutes (default 15). */
+  rotationMinutes?: number | null;
 }
 
 const LS_SETTINGS_KEY = "gamescape.settings.v0";

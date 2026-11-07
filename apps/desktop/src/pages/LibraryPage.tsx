@@ -31,9 +31,11 @@ import {
   type LibraryItem,
 } from "../lib/ipc";
 
-const IMAGE_FILTER = {
-  name: "Images",
-  extensions: ["jpg", "jpeg", "png", "webp", "gif"],
+// Both images and MP4 video are importable; keep the picker in sync with
+// the pipeline (a missing extension here makes valid files unpickable).
+const IMPORT_FILTER = {
+  name: "Wallpapers (images and MP4 video)",
+  extensions: ["jpg", "jpeg", "png", "webp", "gif", "mp4"],
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -136,7 +138,7 @@ export function LibraryPage() {
 
   const pickFiles = useCallback(async () => {
     if (!IN_TAURI) return;
-    const selection = await open({ multiple: true, filters: [IMAGE_FILTER] });
+    const selection = await open({ multiple: true, filters: [IMPORT_FILTER] });
     if (!selection) return;
     const paths = Array.isArray(selection) ? selection : [selection];
     await runImport(paths);
@@ -157,7 +159,7 @@ export function LibraryPage() {
   const relink = useCallback(
     async (issue: IntegrityIssue) => {
       if (!IN_TAURI) return;
-      const selection = await open({ multiple: false, filters: [IMAGE_FILTER] });
+      const selection = await open({ multiple: false, filters: [IMPORT_FILTER] });
       if (typeof selection !== "string") return;
       const result = await libraryRelink(issue.id, selection);
       if (!result.ok) {

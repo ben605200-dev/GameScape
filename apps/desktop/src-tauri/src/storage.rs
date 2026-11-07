@@ -85,6 +85,10 @@ pub struct Settings {
     pub last_wallpaper: Option<LastWallpaper>,
     /// `Some(false)` when the user explicitly turned wallpapers off.
     pub wallpaper_enabled: Option<bool>,
+    /// Rotate the applied wallpaper through the library on a schedule.
+    pub rotation_enabled: Option<bool>,
+    /// Rotation interval in minutes (default 15).
+    pub rotation_minutes: Option<u32>,
 }
 
 /// The last wallpaper GameScape applied, enough to re-apply it on launch.
@@ -99,12 +103,18 @@ pub struct LastWallpaper {
     pub title: String,
 }
 
+/// Parses settings JSON, tolerating a UTF-8 BOM (editors and PowerShell
+/// like to add one; a BOM must never silently reset user settings).
+fn parse_settings(raw: &str) -> Settings {
+    serde_json::from_str(raw.trim_start_matches('\u{feff}')).unwrap_or_default()
+}
+
 pub fn load_settings() -> Settings {
     let Ok(path) = settings_path() else {
         return Settings::default();
     };
     match fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+        Ok(raw) => parse_settings(&raw),
         Err(_) => Settings::default(),
     }
 }
@@ -295,4 +305,19 @@ pub fn init() -> Result<AppState, String> {
         db: Mutex::new(conn),
         settings: Mutex::new(settings),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_parse_tolerates_bom() {
+        let parsed = parse_settings("\u{feff}{\"rotationEnabled\":true,\"rotationMinutes\":30}");
+        assert_eq!(parsed.rotation_enabled, Some(true));
+        assert_eq!(parsed.rotation_minutes, Some(30));
+
+        let broken = parse_settings("\u{feff}not json");
+        assert!(broken.rotation_enabled.is_none());
+    }
 }

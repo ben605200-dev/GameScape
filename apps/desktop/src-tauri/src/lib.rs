@@ -236,60 +236,7 @@ async fn host_apply_media(
     host: tauri::State<'_, desktop_host::HostState>,
     media_id: i64,
 ) -> Result<String, String> {
-    let (path, format, title) = {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|e| format!("database lock poisoned: {e}"))?;
-        conn.query_row(
-            "SELECT path, format, title FROM media WHERE id = ?1",
-            [media_id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
-        )
-        .map_err(|e| format!("library item not found: {e}"))?
-    };
-    let path = path.ok_or("this entry has no file on disk")?;
-    let format_value = format.unwrap_or_default().to_ascii_lowercase();
-
-    let kind = match format_value.as_str() {
-        "mp4" => "video",
-        "gif" => "gif",
-        _ => "static",
-    };
-
-    if kind == "static" {
-        desktop_host::stop_all(&app, host.inner())?;
-        let applied = desktop_host::apply_static(state.inner(), &path, Some(&format_value))?;
-        desktop_host::remember_last_wallpaper(
-            state.inner(),
-            "static",
-            media_id,
-            &path,
-            Some(&format_value),
-            &title,
-        );
-        desktop_host::log_line(&format!("HOST_APPLY_OK static {applied}"));
-        Ok("static".to_string())
-    } else {
-        let (fit_name, _) = desktop_host::configured_fit(state.inner());
-        desktop_host::apply_animated(&app, host.inner(), &path, kind, &title, media_id, fit_name)?;
-        desktop_host::remember_last_wallpaper(
-            state.inner(),
-            kind,
-            media_id,
-            &path,
-            Some(&format_value),
-            &title,
-        );
-        desktop_host::log_line(&format!("HOST_APPLY_OK {kind} {title}"));
-        Ok(kind.to_string())
-    }
+    desktop_host::apply_library_item(&app, state.inner(), host.inner(), media_id)
 }
 
 #[tauri::command]
@@ -542,6 +489,72 @@ fn dev_automation(handle: tauri::AppHandle) {
 }
 
 /* ------------------------------------------------------------------ */
+/* System tray                                                         */
+/* ------------------------------------------------------------------ */
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(desktop)]
+fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let open_item = MenuItem::with_id(app, "open", "Open GameScape", true, None::<&str>)?;
+    let turn_off_item =
+        MenuItem::with_id(app, "turn_off", "Turn off desktop wallpaper", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit GameScape", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open_item, &turn_off_item, &separator, &quit_item])?;
+
+    let mut builder = TrayIconBuilder::with_id("gamescape-tray")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .tooltip("GameScape — desktop wallpapers")
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => show_main_window(app),
+            "turn_off" => {
+                let state = app.state::<AppState>();
+                let host = app.state::<desktop_host::HostState>();
+                if let Err(error) = desktop_host::turn_off(app, state.inner(), host.inner()) {
+                    desktop_host::log_line(&format!("tray: turn off failed: {error}"));
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        show_main_window(app);
+                    }
+                }
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    desktop_host::log_line("system tray: ready");
+    Ok(())
+}
+
+/* ------------------------------------------------------------------ */
 /* Application entry                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -556,6 +569,20 @@ pub fn run() {
             app.manage(desktop_host::HostState::new());
             desktop_host::init(app.handle());
             desktop_host::startup_restore(app.handle());
+
+            // Closing the window keeps GameScape alive in the system tray;
+            // quitting lives in the tray menu.
+            if let Some(window) = app.get_webview_window("main") {
+                let window_for_event = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window_for_event.hide();
+                    }
+                });
+            }
+            #[cfg(desktop)]
+            setup_tray(app.handle())?;
 
             dev_automation(app.handle().clone());
 

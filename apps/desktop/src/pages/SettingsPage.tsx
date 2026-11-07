@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Database, FolderOpen, Monitor, Moon, Sun } from "lucide-react";
+import { Database, FolderOpen, Monitor, Moon, RefreshCw, Sun } from "lucide-react";
 import { useTheme } from "../app/ThemeProvider";
 import {
   getDbHealth,
@@ -16,6 +16,8 @@ export function SettingsPage() {
   const [health, setHealth] = useState<DbHealth | null>(null);
   const [libraryDir, setLibraryDir] = useState<string | null>(null);
   const [fit, setFit] = useState("fill");
+  const [rotationEnabled, setRotationEnabled] = useState(false);
+  const [rotationMinutes, setRotationMinutes] = useState(15);
 
   const loadLibraryDir = useCallback(async () => {
     const result = await libraryInfo();
@@ -28,7 +30,10 @@ export function SettingsPage() {
       if (!cancelled) setHealth(value);
     });
     void getSettings().then((settings) => {
-      if (!cancelled) setFit(settings.wallpaperFit ?? "fill");
+      if (cancelled) return;
+      setFit(settings.wallpaperFit ?? "fill");
+      setRotationEnabled(settings.rotationEnabled ?? false);
+      setRotationMinutes(settings.rotationMinutes ?? 15);
     });
     void loadLibraryDir();
     return () => {
@@ -52,6 +57,16 @@ export function SettingsPage() {
   const changeFit = async (value: string) => {
     setFit(value);
     await saveSettings({ wallpaperFit: value });
+  };
+
+  const toggleRotation = async (enabled: boolean) => {
+    setRotationEnabled(enabled);
+    await saveSettings({ rotationEnabled: enabled });
+  };
+
+  const changeRotationMinutes = async (minutes: number) => {
+    setRotationMinutes(minutes);
+    await saveSettings({ rotationMinutes: minutes });
   };
 
   return (
@@ -99,6 +114,47 @@ export function SettingsPage() {
           <option value="center">Center — original size</option>
           <option value="span">Span across monitors</option>
         </select>
+      </div>
+
+      <div className="card stack">
+        <strong>
+          <RefreshCw size={15} aria-hidden="true" /> Wallpaper rotation
+        </strong>
+        <div className="muted">
+          Change your wallpaper on a schedule, cycling through the wallpapers
+          in your library. Rotation pauses while wallpapers are turned off.
+        </div>
+        <div className="row">
+          <button
+            type="button"
+            className={`button${rotationEnabled ? " button-primary" : ""}`}
+            onClick={() => void toggleRotation(true)}
+            disabled={!IN_TAURI}
+          >
+            On
+          </button>
+          <button
+            type="button"
+            className={`button${!rotationEnabled ? " button-primary" : ""}`}
+            onClick={() => void toggleRotation(false)}
+            disabled={!IN_TAURI}
+          >
+            Off
+          </button>
+          <select
+            className="button"
+            value={rotationMinutes}
+            onChange={(event) =>
+              void changeRotationMinutes(Number(event.target.value))
+            }
+            disabled={!IN_TAURI || !rotationEnabled}
+          >
+            <option value={5}>Every 5 minutes</option>
+            <option value={15}>Every 15 minutes</option>
+            <option value={30}>Every 30 minutes</option>
+            <option value={60}>Every 60 minutes</option>
+          </select>
+        </div>
       </div>
 
       <div className="card stack">

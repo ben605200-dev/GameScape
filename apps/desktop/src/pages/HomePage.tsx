@@ -3,6 +3,7 @@ import { Database, Image, Layers, Monitor, Sparkles } from "lucide-react";
 import { WallpaperCard } from "../components/WallpaperCard";
 import {
   getDbHealth,
+  getSettings,
   hostRestorePrevious,
   hostSetPaused,
   hostStatus,
@@ -20,6 +21,7 @@ export function HomePage() {
   const [checked, setChecked] = useState(false);
   const [report, setReport] = useState<HostReport>({ surfaces: [], applied: null });
   const [busy, setBusy] = useState(false);
+  const [rotation, setRotation] = useState<{ enabled: boolean; minutes: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +51,22 @@ export function HomePage() {
     };
   }, []);
 
+  // Rotation state for the desktop card note (loaded once).
+  useEffect(() => {
+    let cancelled = false;
+    void getSettings().then((settings) => {
+      if (!cancelled) {
+        setRotation({
+          enabled: settings.rotationEnabled ?? false,
+          minutes: settings.rotationMinutes ?? 15,
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const turnOffWallpaper = async () => {
     setBusy(true);
     await hostTurnOff();
@@ -73,6 +91,13 @@ export function HomePage() {
 
   const surfaces = report.surfaces;
   const applied = report.applied;
+  const hostNote =
+    surfaces.length > 0
+      ? `${surfaces[0].title} · ${surfaces.length} monitor${surfaces.length === 1 ? "" : "s"}${surfaces[0].paused ? ` · paused${surfaces[0].pausedReason ? ` (${surfaces[0].pausedReason})` : ""}` : ""}`
+      : applied
+        ? `${applied.title} · ${applied.kind} · fitted edge to edge`
+        : "Nothing applied — set a wallpaper from your library.";
+  const rotationNote = rotation?.enabled ? ` · rotates every ${rotation.minutes} min` : "";
   const featured = catalogue?.entries.slice(0, 5) ?? [];
 
   return (
@@ -128,11 +153,8 @@ export function HomePage() {
             {surfaces.length > 0 ? "Animating" : applied ? "Wallpaper set" : "Idle"}
           </div>
           <div className="stat-note">
-            {surfaces.length > 0
-              ? `${surfaces[0].title} · ${surfaces.length} monitor${surfaces.length === 1 ? "" : "s"}${surfaces[0].paused ? ` · paused${surfaces[0].pausedReason ? ` (${surfaces[0].pausedReason})` : ""}` : ""}`
-              : applied
-                ? `${applied.title} · ${applied.kind} · fitted edge to edge`
-                : "Nothing applied — set a wallpaper from your library."}
+            {hostNote}
+            {rotationNote}
           </div>
           {IN_TAURI && (
             <div className="row">

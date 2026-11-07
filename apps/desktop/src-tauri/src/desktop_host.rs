@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{window::Color, AppHandle, Emitter, Manager, Monitor, WebviewUrl, WebviewWindowBuilder};
@@ -107,6 +107,8 @@ struct HostInner {
     /// Pause requested by the governor (fullscreen app / on battery).
     governor_paused: bool,
     governor_reason: Option<String>,
+    /// When the wallpaper last changed (rotation scheduling).
+    last_rotation: Option<Instant>,
 }
 
 impl HostState {
@@ -118,6 +120,7 @@ impl HostState {
                 manual_paused: false,
                 governor_paused: false,
                 governor_reason: None,
+                last_rotation: Some(Instant::now()),
             }),
         }
     }
@@ -978,9 +981,77 @@ pub fn report(host: &HostState, state: &AppState) -> HostReport {
     }
 }
 
-/// Remembers the wallpaper just applied (enables startup restore).
+/// Applies a library item: static images through the Windows API, animated
+/// media through the desktop-layer surfaces. Used by the UI command, the
+/// rotation scheduler and anything else that needs to set a wallpaper.
+pub fn apply_library_item(
+    app: &AppHandle,
+    state: &AppState,
+    host: &HostState,
+    media_id: i64,
+) -> Result<String, String> {
+    let (path, format, title) = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("database lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT path, format, title FROM media WHERE id = ?1",
+            [media_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .map_err(|e| format!("library item not found: {e}"))?
+    };
+    let path = path.ok_or("this entry has no file on disk")?;
+    let format_value = format.unwrap_or_default().to_ascii_lowercase();
+
+    let kind = match format_value.as_str() {
+        "mp4" => "video",
+        "gif" => "gif",
+        _ => "static",
+    };
+
+    if kind == "static" {
+        stop_all(app, host)?;
+        let applied = apply_static(state, &path, Some(&format_value))?;
+        remember_last_wallpaper(
+            state,
+            host,
+            "static",
+            media_id,
+            &path,
+            Some(&format_value),
+            &title,
+        );
+        log_line(&format!("HOST_APPLY_OK static {applied}"));
+    } else {
+        let (fit_name, _) = configured_fit(state);
+        apply_animated(app, host, &path, kind, &title, media_id, fit_name)?;
+        remember_last_wallpaper(
+            state,
+            host,
+            kind,
+            media_id,
+            &path,
+            Some(&format_value),
+            &title,
+        );
+        log_line(&format!("HOST_APPLY_OK {kind} {title}"));
+    }
+    Ok(kind.to_string())
+}
+
+/// Remembers the wallpaper just applied (startup restore) and restarts the
+/// rotation clock so scheduled changes do not fire right after a manual one.
 pub fn remember_last_wallpaper(
     state: &AppState,
+    host: &HostState,
     kind: &str,
     media_id: i64,
     path: &str,
@@ -997,6 +1068,9 @@ pub fn remember_last_wallpaper(
         });
         settings.wallpaper_enabled = Some(true);
         let _ = storage::save_settings(&settings);
+    }
+    if let Ok(mut inner) = host.inner.lock() {
+        inner.last_rotation = Some(Instant::now());
     }
 }
 
@@ -1030,6 +1104,110 @@ pub fn set_paused(app: &AppHandle, host: &HostState, paused: bool) -> Result<(),
 }
 
 /* ------------------------------------------------------------------ */
+/* Rotation                                                            */
+/* ------------------------------------------------------------------ */
+
+/// Next position in a rotating list; wraps around, restarts when the
+/// current item is not in the list.
+fn next_rotation_position(len: usize, current: Option<usize>) -> usize {
+    match current {
+        Some(position) if position + 1 < len => position + 1,
+        _ => 0,
+    }
+}
+
+/// The rotation interval in seconds; local harnesses may shorten it via
+/// `GAMESCAPE_ROTATION_SECONDS` (dev-only, never set in normal use).
+fn rotation_interval_seconds(minutes: u32) -> u64 {
+    if let Ok(seconds) = std::env::var("GAMESCAPE_ROTATION_SECONDS") {
+        if let Ok(value) = seconds.parse::<u64>() {
+            if value > 0 {
+                return value;
+            }
+        }
+    }
+    u64::from(minutes.clamp(1, 24 * 60)) * 60
+}
+
+/// One rotation check: when enabled and due, apply the next library item.
+fn rotation_tick(app: &AppHandle, host: &HostState, state: &AppState) {
+    let (enabled, minutes, wallpapers_on, current_id) = {
+        let Ok(settings) = state.settings.lock() else {
+            return;
+        };
+        (
+            settings.rotation_enabled.unwrap_or(false),
+            settings.rotation_minutes.unwrap_or(15),
+            settings.wallpaper_enabled.unwrap_or(true),
+            settings.last_wallpaper.as_ref().map(|last| last.media_id),
+        )
+    };
+    if !enabled {
+        return;
+    }
+    // The master switch (Turn off) silences rotation too.
+    if !wallpapers_on {
+        return;
+    }
+
+    let interval = rotation_interval_seconds(minutes);
+    let due = {
+        let Ok(inner) = host.inner.lock() else {
+            return;
+        };
+        match inner.last_rotation {
+            Some(last) => last.elapsed().as_secs() >= interval,
+            None => false,
+        }
+    };
+    if !due {
+        return;
+    }
+
+    let candidates: Vec<(i64, String)> = {
+        let Ok(conn) = state.db.lock() else {
+            return;
+        };
+        let Ok(mut statement) =
+            conn.prepare("SELECT id, path FROM media WHERE path IS NOT NULL ORDER BY id")
+        else {
+            return;
+        };
+        let Ok(rows) = statement
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        else {
+            return;
+        };
+        rows.filter_map(|row| row.ok())
+            .filter(|(_, path)| std::path::Path::new(path).exists())
+            .collect()
+    };
+    if candidates.len() < 2 {
+        // Nothing to rotate through; check again next interval.
+        if let Ok(mut inner) = host.inner.lock() {
+            inner.last_rotation = Some(Instant::now());
+        }
+        return;
+    }
+
+    let position = current_id.and_then(|id| candidates.iter().position(|(cid, _)| *cid == id));
+    let next = next_rotation_position(candidates.len(), position);
+    match apply_library_item(app, state, host, candidates[next].0) {
+        Ok(kind) => log_line(&format!(
+            "rotation: applied {kind} ({} of {})",
+            next + 1,
+            candidates.len()
+        )),
+        Err(error) => {
+            log_line(&format!("rotation: apply failed: {error}"));
+            if let Ok(mut inner) = host.inner.lock() {
+                inner.last_rotation = Some(Instant::now());
+            }
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Self-healing layer monitor                                          */
 /* ------------------------------------------------------------------ */
 
@@ -1041,7 +1219,9 @@ pub fn init(app: &AppHandle) {
             thread::sleep(Duration::from_secs(2));
 
             let host = handle.state::<HostState>();
+            let state = handle.state::<AppState>();
             governor_tick(&handle, &host);
+            rotation_tick(&handle, &host, &state);
 
             let dead = {
                 let Ok(inner) = host.inner.lock() else { continue };
@@ -1254,5 +1434,14 @@ mod tests {
         assert_eq!(fit_mode(None).1, DWPOS_FILL);
         assert_eq!(position_name(4), "fill");
         assert_eq!(position_name(-1), "unknown");
+    }
+
+    #[test]
+    fn rotation_wraps_and_restarts() {
+        assert_eq!(next_rotation_position(3, None), 0);
+        assert_eq!(next_rotation_position(3, Some(0)), 1);
+        assert_eq!(next_rotation_position(3, Some(2)), 0);
+        assert_eq!(next_rotation_position(3, Some(9)), 0);
+        assert_eq!(next_rotation_position(0, Some(0)), 0);
     }
 }
