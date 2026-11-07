@@ -23,15 +23,24 @@ use tauri::{AppHandle, Emitter, Manager, Monitor, WebviewUrl, WebviewWindowBuild
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
-use windows::Win32::UI::Shell::{DesktopWallpaper, IDesktopWallpaper, DWPOS_FILL};
+use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+use windows::Win32::UI::Shell::{
+    DesktopWallpaper, IDesktopWallpaper, SHQueryUserNotificationState, DESKTOP_WALLPAPER_POSITION,
+    DWPOS_CENTER, DWPOS_FILL, DWPOS_FIT, DWPOS_SPAN, DWPOS_STRETCH, QUNS_BUSY,
+    QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, FindWindowExW, FindWindowW, GetWindow, GetWindowLongPtrW, GetWindowRect,
-    IsWindow, SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW,
-    SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT, LWA_ALPHA,
-    SMTO_NORMAL, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WS_CHILD, WS_EX_LAYERED,
+    EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetForegroundWindow, GetWindow,
+    GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsWindow, SendMessageTimeoutW,
+    SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT, LWA_ALPHA, SMTO_NORMAL, SWP_NOACTIVATE,
+    SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WS_CAPTION, WS_CHILD, WS_EX_LAYERED,
     WS_EX_NOREDIRECTIONBITMAP, WS_POPUP,
 };
 
@@ -51,6 +60,9 @@ pub struct HostSurface {
     pub kind: String,
     pub title: String,
     pub paused: bool,
+    /// Why playback is paused, when it is ("paused by you",
+    /// "fullscreen app", "on battery").
+    pub paused_reason: Option<String>,
 }
 
 struct Surface {
@@ -59,7 +71,8 @@ struct Surface {
     kind: String,
     title: String,
     media_path: String,
-    paused: bool,
+    /// Fit mode passed to the renderer page ("fill", "fit", ...).
+    fit: String,
 }
 
 pub struct HostState {
@@ -70,6 +83,11 @@ struct HostInner {
     surfaces: HashMap<u32, Surface>,
     /// Raw handle value (HWND is not Send, so it is stored as isize).
     parent: Option<isize>,
+    /// Pause requested from the UI (Pause button on Home).
+    manual_paused: bool,
+    /// Pause requested by the governor (fullscreen app / on battery).
+    governor_paused: bool,
+    governor_reason: Option<String>,
 }
 
 impl HostState {
@@ -78,6 +96,9 @@ impl HostState {
             inner: Mutex::new(HostInner {
                 surfaces: HashMap::new(),
                 parent: None,
+                manual_paused: false,
+                governor_paused: false,
+                governor_reason: None,
             }),
         }
     }
@@ -94,6 +115,203 @@ pub fn log_line(message: &str) {
         if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
             let _ = writeln!(file, "{message}");
         }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Wallpaper fit                                                       */
+/* ------------------------------------------------------------------ */
+
+/// Maps the stored setting to the Windows position and a display name.
+/// The default (and the point of the feature): wallpapers always fit the
+/// screen — filled edge to edge.
+fn fit_mode(value: Option<&str>) -> (&'static str, DESKTOP_WALLPAPER_POSITION) {
+    match value.map(|v| v.to_ascii_lowercase()).as_deref() {
+        Some("fit") => ("fit", DWPOS_FIT),
+        Some("stretch") => ("stretch", DWPOS_STRETCH),
+        Some("center") => ("center", DWPOS_CENTER),
+        Some("span") => ("span", DWPOS_SPAN),
+        _ => ("fill", DWPOS_FILL),
+    }
+}
+
+fn position_name(value: i32) -> &'static str {
+    match value {
+        0 => "center",
+        1 => "tile",
+        2 => "stretch",
+        3 => "fit",
+        4 => "fill",
+        5 => "span",
+        _ => "unknown",
+    }
+}
+
+/// The fit mode in effect for the current user settings.
+pub fn configured_fit(state: &AppState) -> (&'static str, DESKTOP_WALLPAPER_POSITION) {
+    let value = state
+        .settings
+        .lock()
+        .map(|settings| settings.wallpaper_fit.clone())
+        .unwrap_or(None);
+    fit_mode(value.as_deref())
+}
+
+/* ------------------------------------------------------------------ */
+/* Governor: pause on fullscreen apps and battery                      */
+/* ------------------------------------------------------------------ */
+
+/// Does this foreground window look like a fullscreen app (game, video)?
+/// A normal maximized window has a caption; games (exclusive or borderless)
+/// do not. Our own windows and shell surfaces never count.
+fn should_pause_for_fullscreen(
+    covers_monitor: bool,
+    has_caption: bool,
+    own_process: bool,
+    shell_surface: bool,
+) -> bool {
+    covers_monitor && !has_caption && !own_process && !shell_surface
+}
+
+/// Pause reason priority: fullscreen first, then battery.
+fn governor_reason(fullscreen: bool, on_battery: bool) -> Option<&'static str> {
+    if fullscreen {
+        Some("fullscreen app")
+    } else if on_battery {
+        Some("on battery")
+    } else {
+        None
+    }
+}
+
+fn foreground_covers_screen() -> bool {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return false;
+        }
+
+        let mut class_buffer = [0u16; 128];
+        let length = GetClassNameW(hwnd, &mut class_buffer);
+        let class = if length > 0 {
+            String::from_utf16_lossy(&class_buffer[..length as usize])
+        } else {
+            String::new()
+        };
+        let shell_surface = matches!(
+            class.as_str(),
+            "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd"
+        );
+
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let own_process = pid == std::process::id();
+
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+        let has_caption = style & WS_CAPTION.0 != 0;
+
+        let mut rect = RECT::default();
+        let covers = if GetWindowRect(hwnd, &mut rect).is_ok() {
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if GetMonitorInfoW(monitor, &mut info).as_bool() {
+                let bounds = info.rcMonitor;
+                rect.left <= bounds.left
+                    && rect.top <= bounds.top
+                    && rect.right >= bounds.right
+                    && rect.bottom >= bounds.bottom
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        should_pause_for_fullscreen(covers, has_caption, own_process, shell_surface)
+    }
+}
+
+/// The shell's own "is a fullscreen app running" notification state —
+/// catches exclusive-fullscreen games the rectangle check might miss.
+fn shell_reports_fullscreen() -> bool {
+    match unsafe { SHQueryUserNotificationState() } {
+        Ok(state) => {
+            state == QUNS_RUNNING_D3D_FULL_SCREEN
+                || state == QUNS_BUSY
+                || state == QUNS_PRESENTATION_MODE
+        }
+        Err(_) => false,
+    }
+}
+
+fn on_battery() -> bool {
+    let mut status = SYSTEM_POWER_STATUS::default();
+    if unsafe { GetSystemPowerStatus(&mut status) }.is_ok() {
+        // 0 = offline (running on battery); 255 = unknown.
+        status.ACLineStatus == 0
+    } else {
+        false
+    }
+}
+
+/// Applies the combined (manual + governor) pause state to every surface.
+fn apply_pause_state(app: &AppHandle, host: &HostState) -> Result<(), String> {
+    let (effective, labels) = {
+        let inner = host
+            .inner
+            .lock()
+            .map_err(|e| format!("host state lock poisoned: {e}"))?;
+        let effective = inner.manual_paused || inner.governor_paused;
+        let labels: Vec<String> = inner
+            .surfaces
+            .values()
+            .map(|surface| surface.label.clone())
+            .collect();
+        (effective, labels)
+    };
+    for label in labels {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.eval(&format!(
+                "window.__gsHost && window.__gsHost.setPaused({effective});"
+            ));
+        }
+    }
+    let _ = app.emit("host:state", ());
+    Ok(())
+}
+
+/// One governor tick: watch fullscreen foreground windows and battery state.
+fn governor_tick(app: &AppHandle, host: &HostState) {
+    let fullscreen = foreground_covers_screen() || shell_reports_fullscreen();
+    let battery = on_battery();
+    let reason = governor_reason(fullscreen, battery);
+
+    let changed = {
+        let Ok(mut inner) = host.inner.lock() else {
+            return;
+        };
+        let new_reason = reason.map(|value| value.to_string());
+        if new_reason != inner.governor_reason {
+            inner.governor_paused = new_reason.is_some();
+            inner.governor_reason = new_reason;
+            true
+        } else {
+            false
+        }
+    };
+
+    if !changed {
+        return;
+    }
+    match reason {
+        Some(value) => log_line(&format!("governor: paused ({value})")),
+        None => log_line("governor: resumed"),
+    }
+    if let Err(error) = apply_pause_state(app, host) {
+        log_line(&format!("governor: cannot apply pause state: {error}"));
     }
 }
 
@@ -306,17 +524,31 @@ fn ensure_static_ready(path: &str, format: Option<&str>) -> Result<String, Strin
     Ok(target.to_string_lossy().to_string())
 }
 
-/// Apply a static image to every monitor (Fill). The wallpaper in place
-/// before the first apply is remembered per monitor for restore.
+/// Apply a static image to every monitor using the configured fit mode
+/// (default: fill the screen edge to edge). The wallpaper in place before
+/// the first apply is remembered per monitor — including its fit mode —
+/// so restore puts everything back exactly as it was.
 pub fn apply_static(state: &AppState, library_path: &str, format: Option<&str>) -> Result<String, String> {
     let ready_path = ensure_static_ready(library_path, format)?;
     let ready_wide = wide(&ready_path);
+    let (fit_name, fit_position) = configured_fit(state);
 
-    let previous = with_desktop_wallpaper(|desktop| unsafe {
+    let (previous, previous_position) = with_desktop_wallpaper(|desktop| unsafe {
         let count = desktop
             .GetMonitorDevicePathCount()
             .map_err(|error| format!("cannot list monitors: {error}"))?;
-        let _ = desktop.SetPosition(DWPOS_FILL);
+
+        let previous_position = desktop
+            .GetPosition()
+            .map(|position| position.0)
+            .unwrap_or(-1);
+        desktop
+            .SetPosition(fit_position)
+            .map_err(|error| format!("cannot set the wallpaper fit mode: {error}"))?;
+        log_line(&format!(
+            "wallpaper fit: {fit_name} (was {})",
+            position_name(previous_position)
+        ));
 
         let mut previous: Vec<(String, String)> = Vec::new();
         for index in 0..count {
@@ -341,8 +573,14 @@ pub fn apply_static(state: &AppState, library_path: &str, format: Option<&str>) 
                 .SetWallpaper(PCWSTR(id_wide.as_ptr()), PCWSTR(ready_wide.as_ptr()))
                 .map_err(|error| format!("cannot set the wallpaper on monitor {index}: {error}"))?;
         }
-        Ok(previous)
+        Ok((previous, previous_position))
     })?;
+
+    let prior_position_db: Option<i64> = if (0..=5).contains(&previous_position) {
+        Some(previous_position as i64)
+    } else {
+        None
+    };
 
     if let Ok(conn) = state.db.lock() {
         for (monitor_id, prior) in &previous {
@@ -355,15 +593,19 @@ pub fn apply_static(state: &AppState, library_path: &str, format: Option<&str>) 
                 .unwrap_or(0);
             if known == 0 {
                 let _ = conn.execute(
-                    "INSERT INTO wallpaper_state (monitor_id, previous_path, applied_path)
-                     VALUES (?1, ?2, ?3)",
-                    rusqlite::params![monitor_id, prior, ready_path],
+                    "INSERT INTO wallpaper_state
+                        (monitor_id, previous_path, applied_path, previous_position)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![monitor_id, prior, ready_path, prior_position_db],
                 );
             } else {
                 let _ = conn.execute(
-                    "UPDATE wallpaper_state SET applied_path = ?1, applied_at = datetime('now')
-                     WHERE monitor_id = ?2",
-                    rusqlite::params![ready_path, monitor_id],
+                    "UPDATE wallpaper_state
+                     SET applied_path = ?1,
+                         previous_position = COALESCE(previous_position, ?2),
+                         applied_at = datetime('now')
+                     WHERE monitor_id = ?3",
+                    rusqlite::params![ready_path, prior_position_db, monitor_id],
                 );
             }
         }
@@ -371,21 +613,23 @@ pub fn apply_static(state: &AppState, library_path: &str, format: Option<&str>) 
     Ok(ready_path)
 }
 
-/// Restore the wallpapers that were in place before GameScape applied any.
+/// Restore the wallpapers — and the fit mode — that were in place before
+/// GameScape applied any.
 pub fn restore_previous(state: &AppState) -> Result<(), String> {
-    let rows: Vec<(String, Option<String>)> = {
+    let rows: Vec<(String, Option<String>, Option<i64>)> = {
         let conn = state
             .db
             .lock()
             .map_err(|e| format!("database lock poisoned: {e}"))?;
         let mut statement = conn
-            .prepare("SELECT monitor_id, previous_path FROM wallpaper_state")
+            .prepare("SELECT monitor_id, previous_path, previous_position FROM wallpaper_state")
             .map_err(|error| format!("cannot read wallpaper state: {error}"))?;
         let mapped = statement
             .query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
                 ))
             })
             .map_err(|error| format!("cannot read wallpaper state: {error}"))?;
@@ -400,8 +644,18 @@ pub fn restore_previous(state: &AppState) -> Result<(), String> {
         return Err("no previous wallpaper has been recorded yet".to_string());
     }
 
+    let previous_position = rows
+        .iter()
+        .find_map(|(_, _, position)| position.map(|value| value as i32))
+        .filter(|position| (0..=5).contains(position));
+
     with_desktop_wallpaper(|desktop| unsafe {
-        for (monitor_id, previous) in &rows {
+        if let Some(position) = previous_position {
+            desktop
+                .SetPosition(DESKTOP_WALLPAPER_POSITION(position))
+                .map_err(|error| format!("cannot restore the wallpaper fit: {error}"))?;
+        }
+        for (monitor_id, previous, _) in &rows {
             let Some(previous) = previous else { continue };
             if !std::path::Path::new(previous).exists() {
                 continue;
@@ -418,7 +672,13 @@ pub fn restore_previous(state: &AppState) -> Result<(), String> {
     if let Ok(conn) = state.db.lock() {
         let _ = conn.execute("UPDATE wallpaper_state SET applied_path = NULL", []);
     }
-    log_line("previous wallpaper restored");
+    match previous_position {
+        Some(position) => log_line(&format!(
+            "previous wallpaper restored (fit: {})",
+            position_name(position)
+        )),
+        None => log_line("previous wallpaper restored"),
+    }
     Ok(())
 }
 
@@ -439,6 +699,7 @@ fn url_encode(input: &str) -> String {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_surface(
     app: &AppHandle,
     monitor: &Monitor,
@@ -446,6 +707,8 @@ fn create_surface(
     media_path: &str,
     kind: &str,
     title: &str,
+    fit: &str,
+    start_paused: bool,
     layer: &LayerHost,
 ) -> Result<Surface, String> {
     let label = format!("gs-wallpaper-{index}");
@@ -455,11 +718,15 @@ fn create_surface(
 
     let position = monitor.position();
     let size = monitor.size();
+    // The paused flag rides in the URL: the page starts paused without a
+    // race against an eval that could arrive before the page loads.
     let page = format!(
-        "wallpaper-host.html?kind={}&path={}&title={}",
+        "wallpaper-host.html?kind={}&path={}&title={}&fit={}&paused={}",
         url_encode(kind),
         url_encode(media_path),
-        url_encode(title)
+        url_encode(title),
+        url_encode(fit),
+        if start_paused { 1 } else { 0 }
     );
 
     let window = WebviewWindowBuilder::new(app, label.as_str(), WebviewUrl::App(page.into()))
@@ -506,7 +773,7 @@ fn create_surface(
         kind: kind.to_string(),
         title: title.to_string(),
         media_path: media_path.to_string(),
-        paused: false,
+        fit: fit.to_string(),
     })
 }
 
@@ -517,6 +784,7 @@ pub fn apply_animated(
     media_path: &str,
     kind: &str,
     title: &str,
+    fit: &str,
 ) -> Result<(), String> {
     stop_all(app, host)?;
 
@@ -528,9 +796,27 @@ pub fn apply_animated(
     }
     let layer = discover_layer()?;
 
+    let start_paused = {
+        let inner = host
+            .inner
+            .lock()
+            .map_err(|e| format!("host state lock poisoned: {e}"))?;
+        inner.manual_paused || inner.governor_paused
+    };
+
     let mut created: Vec<Surface> = Vec::new();
     for (index, monitor) in monitors.iter().enumerate() {
-        match create_surface(app, monitor, index, media_path, kind, title, &layer) {
+        match create_surface(
+            app,
+            monitor,
+            index,
+            media_path,
+            kind,
+            title,
+            fit,
+            start_paused,
+            &layer,
+        ) {
             Ok(surface) => created.push(surface),
             Err(error) => {
                 for surface in &created {
@@ -543,16 +829,35 @@ pub fn apply_animated(
         }
     }
 
-    let mut inner = host
-        .inner
-        .lock()
-        .map_err(|e| format!("host state lock poisoned: {e}"))?;
-    inner.surfaces = created
-        .into_iter()
-        .map(|surface| (surface.monitor_index, surface))
-        .collect();
-    inner.parent = Some(layer.parent.0 as isize);
-    let _ = app.emit("host:state", ());
+    let (effective_paused, pause_reason) = {
+        let mut inner = host
+            .inner
+            .lock()
+            .map_err(|e| format!("host state lock poisoned: {e}"))?;
+        inner.surfaces = created
+            .into_iter()
+            .map(|surface| (surface.monitor_index, surface))
+            .collect();
+        inner.parent = Some(layer.parent.0 as isize);
+        let effective = inner.manual_paused || inner.governor_paused;
+        let reason = if inner.governor_paused {
+            inner.governor_reason.clone()
+        } else if inner.manual_paused {
+            Some("paused by you".to_string())
+        } else {
+            None
+        };
+        (effective, reason)
+    };
+    if effective_paused {
+        log_line(&format!(
+            "new surfaces start paused ({})",
+            pause_reason.as_deref().unwrap_or("paused")
+        ));
+    }
+    // Push the effective state to the fresh pages (they already start from
+    // the URL flag; this covers state changing while they were created).
+    apply_pause_state(app, host)?;
     Ok(())
 }
 
@@ -570,6 +875,9 @@ pub fn stop_all(app: &AppHandle, host: &HostState) -> Result<(), String> {
             .collect();
         inner.surfaces.clear();
         inner.parent = None;
+        // Stopping clears a manual pause (new applies start playing); the
+        // governor's environmental pause is not user intent and stays.
+        inner.manual_paused = false;
         labels
     };
     for label in labels {
@@ -585,6 +893,14 @@ pub fn status(host: &HostState) -> Vec<HostSurface> {
     host.inner
         .lock()
         .map(|inner| {
+            let effective = inner.manual_paused || inner.governor_paused;
+            let reason: Option<String> = if inner.governor_paused {
+                inner.governor_reason.clone()
+            } else if inner.manual_paused {
+                Some("paused by you".to_string())
+            } else {
+                None
+            };
             let mut surfaces: Vec<HostSurface> = inner
                 .surfaces
                 .values()
@@ -592,7 +908,8 @@ pub fn status(host: &HostState) -> Vec<HostSurface> {
                     monitor_index: surface.monitor_index,
                     kind: surface.kind.clone(),
                     title: surface.title.clone(),
-                    paused: surface.paused,
+                    paused: effective,
+                    paused_reason: reason.clone(),
                 })
                 .collect();
             surfaces.sort_by_key(|surface| surface.monitor_index);
@@ -601,30 +918,17 @@ pub fn status(host: &HostState) -> Vec<HostSurface> {
         .unwrap_or_default()
 }
 
+/// Manual pause from the UI. The governor layers on top of this, so a
+/// surface stays paused while both request it and resumes when neither does.
 pub fn set_paused(app: &AppHandle, host: &HostState, paused: bool) -> Result<(), String> {
-    let labels: Vec<String> = {
+    {
         let mut inner = host
             .inner
             .lock()
             .map_err(|e| format!("host state lock poisoned: {e}"))?;
-        for surface in inner.surfaces.values_mut() {
-            surface.paused = paused;
-        }
-        inner
-            .surfaces
-            .values()
-            .map(|surface| surface.label.clone())
-            .collect()
-    };
-    for label in labels {
-        if let Some(window) = app.get_webview_window(&label) {
-            let _ = window.eval(&format!(
-                "window.__gsHost && window.__gsHost.setPaused({paused});"
-            ));
-        }
+        inner.manual_paused = paused;
     }
-    let _ = app.emit("host:state", ());
-    Ok(())
+    apply_pause_state(app, host)
 }
 
 /* ------------------------------------------------------------------ */
@@ -633,69 +937,84 @@ pub fn set_paused(app: &AppHandle, host: &HostState, paused: bool) -> Result<(),
 
 pub fn init(app: &AppHandle) {
     let handle = app.clone();
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(2));
+    thread::spawn(move || {
+        log_line("governor: active (fullscreen + battery watch)");
+        loop {
+            thread::sleep(Duration::from_secs(2));
 
-        let host = handle.state::<HostState>();
-        let dead = {
-            let Ok(inner) = host.inner.lock() else { continue };
-            match inner.parent {
-                Some(raw) => !unsafe { IsWindow(Some(hwnd_from_raw(raw))) }.as_bool(),
-                None => false,
+            let host = handle.state::<HostState>();
+            governor_tick(&handle, &host);
+
+            let dead = {
+                let Ok(inner) = host.inner.lock() else { continue };
+                match inner.parent {
+                    Some(raw) => !unsafe { IsWindow(Some(hwnd_from_raw(raw))) }.as_bool(),
+                    None => false,
+                }
+            };
+            if !dead {
+                continue;
             }
-        };
-        if !dead {
-            continue;
-        }
 
-        log_line("desktop layer lost (explorer restart?) - re-attaching");
-        let specs: Vec<(String, String, String)> = {
-            let Ok(inner) = host.inner.lock() else { continue };
-            inner
-                .surfaces
-                .values()
-                .map(|surface| {
-                    (
-                        surface.media_path.clone(),
-                        surface.kind.clone(),
-                        surface.title.clone(),
-                    )
-                })
-                .collect()
-        };
-        if specs.is_empty() {
-            if let Ok(mut inner) = host.inner.lock() {
-                inner.parent = None;
+            log_line("desktop layer lost (explorer restart?) - re-attaching");
+            let specs: Vec<(String, String, String, String)> = {
+                let Ok(inner) = host.inner.lock() else { continue };
+                inner
+                    .surfaces
+                    .values()
+                    .map(|surface| {
+                        (
+                            surface.media_path.clone(),
+                            surface.kind.clone(),
+                            surface.title.clone(),
+                            surface.fit.clone(),
+                        )
+                    })
+                    .collect()
+            };
+            if specs.is_empty() {
+                if let Ok(mut inner) = host.inner.lock() {
+                    inner.parent = None;
+                }
+                continue;
             }
-            continue;
-        }
 
-        if let Err(error) = stop_all(&handle, &host) {
-            log_line(&format!("re-attach cleanup failed: {error}"));
-        }
-        let Ok(layer) = discover_layer() else {
-            log_line("re-attach discovery failed - will retry");
-            continue;
-        };
-        let monitors = handle.available_monitors().unwrap_or_default();
-        let mut created: Vec<Surface> = Vec::new();
-        for (index, monitor) in monitors.iter().enumerate() {
-            if let Some((path, kind, title)) = specs.get(index) {
-                match create_surface(&handle, monitor, index, path, kind, title, &layer) {
-                    Ok(surface) => created.push(surface),
-                    Err(error) => log_line(&format!("re-attach failed on monitor {index}: {error}")),
+            if let Err(error) = stop_all(&handle, &host) {
+                log_line(&format!("re-attach cleanup failed: {error}"));
+            }
+            let Ok(layer) = discover_layer() else {
+                log_line("re-attach discovery failed - will retry");
+                continue;
+            };
+            let monitors = handle.available_monitors().unwrap_or_default();
+            let start_paused = host
+                .inner
+                .lock()
+                .map(|inner| inner.manual_paused || inner.governor_paused)
+                .unwrap_or(false);
+            let mut created: Vec<Surface> = Vec::new();
+            for (index, monitor) in monitors.iter().enumerate() {
+                if let Some((path, kind, title, fit)) = specs.get(index) {
+                    match create_surface(
+                        &handle, monitor, index, path, kind, title, fit, start_paused, &layer,
+                    ) {
+                        Ok(surface) => created.push(surface),
+                        Err(error) => {
+                            log_line(&format!("re-attach failed on monitor {index}: {error}"))
+                        }
+                    }
                 }
             }
+            if let Ok(mut inner) = host.inner.lock() {
+                inner.surfaces = created
+                    .into_iter()
+                    .map(|surface| (surface.monitor_index, surface))
+                    .collect();
+                inner.parent = Some(layer.parent.0 as isize);
+            }
+            log_line("surfaces re-attached");
+            let _ = apply_pause_state(&handle, &host);
         }
-        if let Ok(mut inner) = host.inner.lock() {
-            inner.surfaces = created
-                .into_iter()
-                .map(|surface| (surface.monitor_index, surface))
-                .collect();
-            inner.parent = Some(layer.parent.0 as isize);
-        }
-        log_line("surfaces re-attached");
-        let _ = handle.emit("host:state", ());
     });
 }
 
@@ -709,4 +1028,47 @@ pub fn shutdown(app: &AppHandle) {
         log_line(&format!("shutdown cleanup failed: {error}"));
     }
     log_line("desktop host stopped");
+}
+
+/* ------------------------------------------------------------------ */
+/* Tests                                                               */
+/* ------------------------------------------------------------------ */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fullscreen_pause_needs_cover_without_caption() {
+        // Borderless game covering the monitor: pause.
+        assert!(should_pause_for_fullscreen(true, false, false, false));
+        // Normal maximized app (has a caption): never pause.
+        assert!(!should_pause_for_fullscreen(true, true, false, false));
+        // Windowed, not covering: no pause.
+        assert!(!should_pause_for_fullscreen(false, false, false, false));
+        // Our own window and shell surfaces never count.
+        assert!(!should_pause_for_fullscreen(true, false, true, false));
+        assert!(!should_pause_for_fullscreen(true, false, false, true));
+    }
+
+    #[test]
+    fn governor_reason_priority() {
+        assert_eq!(governor_reason(true, true), Some("fullscreen app"));
+        assert_eq!(governor_reason(false, true), Some("on battery"));
+        assert_eq!(governor_reason(false, false), None);
+    }
+
+    #[test]
+    fn fit_mode_defaults_to_fill_screen() {
+        assert_eq!(fit_mode(None).0, "fill");
+        assert_eq!(fit_mode(Some("FILL")).0, "fill");
+        assert_eq!(fit_mode(Some("fit")).0, "fit");
+        assert_eq!(fit_mode(Some("stretch")).0, "stretch");
+        assert_eq!(fit_mode(Some("center")).0, "center");
+        assert_eq!(fit_mode(Some("span")).0, "span");
+        assert_eq!(fit_mode(Some("bogus")).0, "fill");
+        assert_eq!(fit_mode(None).1, DWPOS_FILL);
+        assert_eq!(position_name(4), "fill");
+        assert_eq!(position_name(-1), "unknown");
+    }
 }

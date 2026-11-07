@@ -78,6 +78,9 @@ pub struct Settings {
     pub theme: Option<String>,
     /// Custom library location; `None` uses the default under Pictures.
     pub library_dir: Option<String>,
+    /// How wallpapers fill the screen: "fill" (default), "fit", "stretch",
+    /// "center" or "span".
+    pub wallpaper_fit: Option<String>,
 }
 
 pub fn load_settings() -> Settings {
@@ -191,8 +194,14 @@ CREATE TABLE IF NOT EXISTS wallpaper_state (
 );
 "#;
 
+/// Schema v4 — remember the desktop fit mode that was in place before
+/// GameScape applied anything, so restore puts it back unchanged.
+const V4_SQL: &str = r#"
+ALTER TABLE wallpaper_state ADD COLUMN previous_position INTEGER;
+"#;
+
 fn migrations() -> &'static [(i64, &'static str)] {
-    &[(1, V1_SQL), (2, V2_SQL), (3, V3_SQL)]
+    &[(1, V1_SQL), (2, V2_SQL), (3, V3_SQL), (4, V4_SQL)]
 }
 
 pub fn open_and_migrate() -> Result<Connection, String> {

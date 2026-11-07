@@ -4,7 +4,7 @@ The GameScape Windows application.
 
 **Stack:** Tauri v2 · Rust core (`src-tauri/`) · React + TypeScript + Vite (`src/`)
 
-**Status:** Phase 5 underway — the desktop host applies wallpapers for real: static images through the documented Windows wallpaper API, animated GIF/MP4 through per-monitor desktop-layer surfaces with self-healing, plus everything from Phases 2–4 (library, media pipeline, interactive previews). The performance governor (pause on games/battery) and rotation are the next slices; the download manager remains deferred to the hosting phase. Tauri v2.12, React 19, Vite 8, react-router 7. Structure:
+**Status:** Phase 5 — the desktop host applies wallpapers for real: static images through the documented Windows wallpaper API (always fitted to the screen; previous wallpaper and fit restorable), animated GIF/MP4 through per-monitor desktop-layer surfaces with self-healing, an auto-pause governor for fullscreen apps and battery, plus everything from Phases 2–4 (library, media pipeline, interactive previews). A per-user installer builds with `tauri build` (NSIS, v0.5.0). Rotation, startup restore and per-monitor assignment are the next slices; the download manager remains deferred to the hosting phase. Tauri v2.12, React 19, Vite 8, react-router 7. Structure:
 
 ```
 src/          React UI (app shell, features, components, lib)

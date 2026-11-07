@@ -19,6 +19,8 @@ export interface AppSettings {
   theme?: string | null;
   /** Custom library location; null/undefined uses the default under Pictures. */
   libraryDir?: string | null;
+  /** How applied wallpapers fill the screen: fill | fit | stretch | center | span. */
+  wallpaperFit?: string | null;
 }
 
 const LS_SETTINGS_KEY = "gamescape.settings.v0";
@@ -298,6 +300,7 @@ export interface HostSurface {
   kind: string;
   title: string;
   paused: boolean;
+  pausedReason: string | null;
 }
 
 /** Apply a library item to every monitor (static image or animated media). */

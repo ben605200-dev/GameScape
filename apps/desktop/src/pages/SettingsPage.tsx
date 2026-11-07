@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Database, FolderOpen, Moon, Sun } from "lucide-react";
+import { Database, FolderOpen, Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "../app/ThemeProvider";
 import {
   getDbHealth,
+  getSettings,
   IN_TAURI,
   libraryInfo,
   saveSettings,
@@ -14,6 +15,7 @@ export function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const [health, setHealth] = useState<DbHealth | null>(null);
   const [libraryDir, setLibraryDir] = useState<string | null>(null);
+  const [fit, setFit] = useState("fill");
 
   const loadLibraryDir = useCallback(async () => {
     const result = await libraryInfo();
@@ -24,6 +26,9 @@ export function SettingsPage() {
     let cancelled = false;
     void getDbHealth().then((value) => {
       if (!cancelled) setHealth(value);
+    });
+    void getSettings().then((settings) => {
+      if (!cancelled) setFit(settings.wallpaperFit ?? "fill");
     });
     void loadLibraryDir();
     return () => {
@@ -42,6 +47,11 @@ export function SettingsPage() {
   const resetLibraryDir = async () => {
     await saveSettings({ libraryDir: null });
     await loadLibraryDir();
+  };
+
+  const changeFit = async (value: string) => {
+    setFit(value);
+    await saveSettings({ wallpaperFit: value });
   };
 
   return (
@@ -67,6 +77,28 @@ export function SettingsPage() {
             <Sun size={16} aria-hidden="true" /> Light
           </button>
         </div>
+      </div>
+
+      <div className="card stack">
+        <strong>
+          <Monitor size={15} aria-hidden="true" /> Desktop wallpaper fit
+        </strong>
+        <div className="muted">
+          Wallpapers always fill the screen by default, whatever their
+          original size. Pick a different fit if you prefer.
+        </div>
+        <select
+          className="button"
+          value={fit}
+          onChange={(event) => void changeFit(event.target.value)}
+          disabled={!IN_TAURI}
+        >
+          <option value="fill">Fill the screen (recommended)</option>
+          <option value="fit">Fit — whole image, black bars</option>
+          <option value="stretch">Stretch</option>
+          <option value="center">Center — original size</option>
+          <option value="span">Span across monitors</option>
+        </select>
       </div>
 
       <div className="card stack">
@@ -119,12 +151,12 @@ export function SettingsPage() {
         <strong>About</strong>
         <div className="row">
           <span className="chip">GameScape</span>
-          <span className="chip">v0.0.0 · pre-alpha</span>
+          <span className="chip">v0.5.0 · pre-alpha</span>
           <span className="chip">Apache-2.0</span>
         </div>
         <div className="muted">
-          Phase 3 — personal library, collections and integrity tools. Built
-          with Tauri, Rust and React.
+          Phase 5 — desktop wallpapers with an auto-pause governor, plus an
+          installer. Built with Tauri, Rust and React.
         </div>
       </div>
     </div>

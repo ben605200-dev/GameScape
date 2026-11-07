@@ -30,6 +30,12 @@
       const params = new URLSearchParams(location.search);
       const kind = params.get("kind") ?? "video";
       const filePath = params.get("path") ?? "";
+      const fit = params.get("fit") ?? "fill";
+      const startPaused = params.get("paused") === "1";
+      // Same vocabulary as the Windows wallpaper positions, mapped to CSS.
+      const objectFit =
+        { fill: "cover", span: "cover", fit: "contain", stretch: "fill", center: "none" }[fit] ??
+        "cover";
       const media = document.getElementById("media");
 
       const src = convertFileSrc(filePath);
@@ -41,13 +47,17 @@
         image.src = src;
         image.alt = "";
         image.style.display = "block";
+        image.style.objectFit = objectFit;
         media.replaceWith(image);
       } else {
         media.src = src;
         media.style.display = "block";
-        media.play().catch(() => {
-          /* autoplay blocked — stays on the first frame */
-        });
+        media.style.objectFit = objectFit;
+        if (!startPaused) {
+          media.play().catch(() => {
+            /* autoplay blocked — stays on the first frame */
+          });
+        }
       }
 
       // Governor/UI control surface (called via webview eval).

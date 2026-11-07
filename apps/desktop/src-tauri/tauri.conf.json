@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "GameScape",
-  "version": "0.0.0",
+  "version": "0.5.0",
   "identifier": "app.gamescape.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -30,13 +30,26 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "GameScape",
+    "copyright": "GameScape contributors - Apache-2.0",
+    "category": "Utility",
+    "shortDescription": "Desktop customisation: wallpapers, widgets and game-inspired setups.",
+    "longDescription": "GameScape turns your Windows desktop into a personalised, game-inspired space. Apply static and animated wallpapers from your own library, pause automatically while you game, and more.",
+    "licenseFile": "../../../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }

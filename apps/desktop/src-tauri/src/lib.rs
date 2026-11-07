@@ -269,7 +269,8 @@ async fn host_apply_media(
         desktop_host::log_line(&format!("HOST_APPLY_OK static {applied}"));
         Ok("static".to_string())
     } else {
-        desktop_host::apply_animated(&app, host.inner(), &path, kind, &title)?;
+        let (fit_name, _) = desktop_host::configured_fit(state.inner());
+        desktop_host::apply_animated(&app, host.inner(), &path, kind, &title, fit_name)?;
         desktop_host::log_line(&format!("HOST_APPLY_OK {kind} {title}"));
         Ok(kind.to_string())
     }
@@ -298,7 +299,14 @@ async fn host_set_paused(
 }
 
 #[tauri::command]
-fn host_restore_previous(state: tauri::State<'_, AppState>) -> Result<(), String> {
+async fn host_restore_previous(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+) -> Result<(), String> {
+    // Restoring means undoing everything GameScape did: stop animated
+    // surfaces first, then put the previous (static) wallpapers back.
+    desktop_host::stop_all(&app, host.inner())?;
     desktop_host::restore_previous(state.inner())
 }
 

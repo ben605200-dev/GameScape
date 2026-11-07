@@ -77,8 +77,8 @@ export function HomePage() {
       <div>
         <h1 className="page-title">Welcome to GameScape</h1>
         <p className="page-subtitle">
-          The foundation build — shell, storage and the first data are coming
-          online.
+          Wallpapers that live on your desktop — static and animated, and they
+          pause by themselves while you game.
         </p>
       </div>
 
@@ -126,7 +126,7 @@ export function HomePage() {
           </div>
           <div className="stat-note">
             {surfaces.length > 0
-              ? `${surfaces[0].title} · ${surfaces.length} monitor${surfaces.length === 1 ? "" : "s"}${surfaces[0].paused ? " · paused" : ""}`
+              ? `${surfaces[0].title} · ${surfaces.length} monitor${surfaces.length === 1 ? "" : "s"}${surfaces[0].paused ? ` · paused${surfaces[0].pausedReason ? ` (${surfaces[0].pausedReason})` : ""}` : ""}`
               : "Nothing animating — set a wallpaper from your library."}
           </div>
           {IN_TAURI && (
@@ -167,8 +167,8 @@ export function HomePage() {
           <div className="stat-head">
             <Layers size={15} aria-hidden="true" /> Build
           </div>
-          <div className="stat-value">0.0.0</div>
-          <div className="stat-note">Pre-alpha · Phase 2 foundation</div>
+          <div className="stat-value">0.5.0</div>
+          <div className="stat-note">Pre-alpha · Phase 5</div>
         </div>
       </div>
 

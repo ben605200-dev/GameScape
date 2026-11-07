@@ -30,7 +30,7 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-foot">v0.0.0 · foundation build</div>
+      <div className="sidebar-foot">v0.5.0 · pre-alpha</div>
     </aside>
   );
 }
