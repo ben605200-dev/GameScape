@@ -145,6 +145,13 @@ export async function loadCatalogue(): Promise<CatalogueIndex | null> {
   }
 }
 
+/**
+ * Renders a catalogue entry into a real wallpaper file in the library and
+ * returns its library id (idempotent — repeated calls reuse the file).
+ */
+export const catalogueGenerate = (catalogueId: string) =>
+  runAction<number>("catalogue_generate", { catalogueId });
+
 /* ------------------------------------------------------------------ */
 /* Library                                                             */
 /* ------------------------------------------------------------------ */

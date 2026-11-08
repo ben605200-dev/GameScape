@@ -3,6 +3,7 @@
 //! Command surface for the React UI: settings, storage health and the
 //! catalogue index. All data is local; nothing here uses the network.
 
+mod artwork;
 mod catalogue;
 mod desktop_host;
 mod library;
@@ -288,6 +289,111 @@ async fn host_restore_previous(
     // surfaces first, then put the previous (static) wallpapers back.
     desktop_host::stop_all(&app, host.inner())?;
     desktop_host::restore_previous(state.inner())
+}
+
+/* ------------------------------------------------------------------ */
+/* Catalogue generation                                                */
+/* ------------------------------------------------------------------ */
+
+/// Renders a catalogue entry into a real wallpaper, stores it in the
+/// library (source `public_catalogue`) and returns the media id. Repeated
+/// calls are idempotent — the same file and row are reused.
+#[tauri::command]
+async fn catalogue_generate(
+    state: tauri::State<'_, AppState>,
+    catalogue_id: String,
+) -> Result<i64, String> {
+    // Already generated (or imported)? Reuse it.
+    {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("database lock poisoned: {e}"))?;
+        let known: Option<(i64, Option<String>)> = conn
+            .query_row(
+                "SELECT id, path FROM media WHERE catalogue_id = ?1 LIMIT 1",
+                [&catalogue_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .ok();
+        if let Some((id, path)) = known {
+            if let Some(path) = path {
+                if std::path::Path::new(&path).exists() {
+                    return Ok(id);
+                }
+            }
+        }
+    }
+
+    let index = catalogue::load_seed()?;
+    let entry = index
+        .entries
+        .iter()
+        .find(|entry| entry.id == catalogue_id)
+        .ok_or_else(|| "this catalogue entry does not exist".to_string())?;
+
+    let rendered = artwork::render_entry(entry, 1920, 1080);
+    let mut bytes: Vec<u8> = Vec::new();
+    image::DynamicImage::ImageRgba8(rendered)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .map_err(|error| format!("cannot encode the wallpaper: {error}"))?;
+
+    let hash = library::sha256_hex(&bytes);
+    let library_dir = {
+        let settings = state
+            .settings
+            .lock()
+            .map_err(|e| format!("settings lock poisoned: {e}"))?;
+        storage::effective_library_dir(&settings)?
+    };
+    std::fs::create_dir_all(&library_dir)
+        .map_err(|error| format!("cannot create {}: {error}", library_dir.display()))?;
+    let target = library_dir.join(format!("{}.png", &hash[..12]));
+
+    let id = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("database lock poisoned: {e}"))?;
+        // Identical bytes already present? Reuse that row.
+        if let Ok(existing) =
+            conn.query_row("SELECT id FROM media WHERE sha256 = ?1", [&hash], |row| {
+                row.get::<_, i64>(0)
+            })
+        {
+            return Ok(existing);
+        }
+        std::fs::write(&target, &bytes)
+            .map_err(|error| format!("cannot store the wallpaper: {error}"))?;
+        conn.execute(
+            "INSERT INTO media
+               (source, catalogue_id, path, managed, title, description, game, tags,
+                format, width, height, bytes, sha256, licence_id, status)
+             VALUES ('public_catalogue', ?1, ?2, 1, ?3, ?4, ?5, ?6, 'png', 1920, 1080, ?7, ?8, ?9, 'ok')",
+            rusqlite::params![
+                catalogue_id,
+                target.to_string_lossy().to_string(),
+                entry.title,
+                entry.description,
+                entry.game,
+                serde_json::to_string(&entry.tags).unwrap_or_else(|_| "[]".to_string()),
+                bytes.len() as i64,
+                hash,
+                entry.licence_id,
+            ],
+        )
+        .map_err(|error| format!("cannot add the wallpaper to your library: {error}"))?;
+        conn.last_insert_rowid()
+    };
+
+    desktop_host::log_line(&format!(
+        "catalogue generated: {} (#{id})",
+        entry.title
+    ));
+    Ok(id)
 }
 
 /* ------------------------------------------------------------------ */
@@ -748,6 +854,7 @@ pub fn run() {
             settings_get,
             settings_set,
             host_turn_off,
+            catalogue_generate,
             widgets_list,
             widget_create,
             widget_update,

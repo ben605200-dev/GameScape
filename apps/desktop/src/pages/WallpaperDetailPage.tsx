@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft, Monitor, Sparkles } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { FavouriteButton } from "../components/FavouriteButton";
 import { InteractivePreview } from "../components/InteractivePreview";
 import { effectStyleOf } from "../lib/catalogue";
-import { loadCatalogue, type CatalogueEntry } from "../lib/ipc";
+import {
+  catalogueGenerate,
+  hostApplyMedia,
+  IN_TAURI,
+  loadCatalogue,
+  type CatalogueEntry,
+} from "../lib/ipc";
 
 const MEDIA_LABELS: Record<string, string> = {
   static: "Static",
@@ -16,6 +22,31 @@ export function WallpaperDetailPage() {
   const { id } = useParams();
   const [entry, setEntry] = useState<CatalogueEntry | null>(null);
   const [checked, setChecked] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const useAsWallpaper = async () => {
+    if (!entry) return;
+    setApplying(true);
+    setFlash(null);
+    setError(null);
+
+    const generated = await catalogueGenerate(entry.id);
+    if (!generated.ok) {
+      setError(generated.error);
+      setApplying(false);
+      return;
+    }
+    const applied = await hostApplyMedia(generated.value);
+    if (!applied.ok) {
+      setError(applied.error);
+    } else {
+      setFlash("Applied — saved to your library");
+      window.setTimeout(() => setFlash(null), 5000);
+    }
+    setApplying(false);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -142,9 +173,23 @@ export function WallpaperDetailPage() {
             </div>
           )}
 
+          <div className="row">
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={() => void useAsWallpaper()}
+              disabled={applying || !IN_TAURI}
+            >
+              <Monitor size={15} aria-hidden="true" />
+              {applying ? "Generating…" : "Use as desktop wallpaper"}
+            </button>
+            {flash && <span className="chip chip-success">{flash}</span>}
+            {error && <span className="chip chip-danger">{error}</span>}
+          </div>
           <div className="muted" style={{ fontSize: 12.5 }}>
-            Downloading, applying and full-screen preview arrive with the
-            catalogue pipeline (Phase 3) and the desktop host (Phase 5).
+            GameScape renders this wallpaper from its art — the gradient and
+            its {effectStyleOf(entry)} motif at 1920×1080 — and keeps it in
+            your library, so you can re-apply it any time from the item page.
           </div>
         </div>
       </div>
