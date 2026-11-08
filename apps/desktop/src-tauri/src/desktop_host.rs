@@ -1605,6 +1605,7 @@ fn finish_drag(app: &AppHandle, host: &HostState, state: &AppState, drag: &DragS
 /// travels by `dx,dy`. Synthesizes no input at all, so it is safe to leave
 /// running while the user works or games; it simply waits. Afterwards the
 /// widget row is removed again (it was created by the harness for this run).
+#[cfg(debug_assertions)]
 pub fn dev_drag_when_ready(app: &AppHandle, widget_id: i64, dx: i32, dy: i32, timeout_secs: u64) {
     let host = app.state::<HostState>();
     let state = app.state::<AppState>();
@@ -1689,6 +1690,7 @@ pub fn dev_drag_when_ready(app: &AppHandle, widget_id: i64, dx: i32, dy: i32, ti
 }
 
 /// Removes one widget row (the dev test widget) and re-syncs the desktop.
+#[cfg(debug_assertions)]
 fn finish_dev_drag(app: &AppHandle, host: &HostState, state: &AppState, widget_id: i64) {
     if let Ok(conn) = state.db.lock() {
         let _ = conn.execute(
