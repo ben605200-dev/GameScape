@@ -91,6 +91,42 @@
         background-color: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.08);
       }
+
+      .cal-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 2%;
+        margin-top: 3%;
+      }
+
+      .cal-head {
+        text-align: center;
+        color: #5d7fa6;
+        font-size: min(3vh, 11px);
+        padding: 4% 0;
+      }
+
+      .cal-cell {
+        text-align: center;
+        color: #9fb6cf;
+        font-size: min(3.6vh, 13px);
+        padding: 7% 0;
+        border-radius: 50%;
+      }
+
+      .cal-cell.today {
+        background: linear-gradient(135deg, #3f7dff, #6fd3ff);
+        color: #ffffff;
+        font-weight: 600;
+      }
+
+      .text-body {
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.25;
+        color: #e8eef6;
+        overflow: hidden;
+      }
     </style>
   </head>
   <body>
@@ -233,8 +269,123 @@
         }
       }
 
+      function renderCalendar() {
+        const update = () => {
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = now.getMonth();
+          root.replaceChildren(
+            el(
+              "div",
+              "label",
+              now.toLocaleDateString([], { month: "long", year: "numeric" }),
+            ),
+          );
+          const grid = el("div", "cal-grid");
+          for (const day of ["M", "T", "W", "T", "F", "S", "S"]) {
+            grid.append(el("div", "cal-head", day));
+          }
+          const first = new Date(year, month, 1);
+          const start = (first.getDay() + 6) % 7; // Monday-first
+          const days = new Date(year, month + 1, 0).getDate();
+          for (let blank = 0; blank < start; blank += 1) {
+            grid.append(el("div", "cal-cell", ""));
+          }
+          for (let day = 1; day <= days; day += 1) {
+            const cell = el("div", "cal-cell", String(day));
+            if (day === now.getDate()) cell.classList.add("today");
+            grid.append(cell);
+          }
+          root.append(grid);
+        };
+        update();
+        window.setInterval(update, 60000);
+      }
+
+      async function renderCountdown() {
+        let label = "Countdown";
+        let target = null;
+        try {
+          const rows = await invoke("widgets_list");
+          const row = (rows ?? []).find((entry) => String(entry.id) === String(id));
+          if (row?.settings) {
+            const parsed = JSON.parse(row.settings);
+            if (typeof parsed.label === "string" && parsed.label.trim() !== "") {
+              label = parsed.label;
+            }
+            if (typeof parsed.target === "string" && parsed.target !== "") {
+              target = parsed.target;
+            }
+          }
+        } catch {
+          /* fall back to the empty state below */
+        }
+
+        root.replaceChildren(el("div", "label", label));
+        const big = el("div", "big", "—");
+        const sub = el("div", "sub", "");
+        root.append(big, sub);
+        if (!target) {
+          sub.textContent = "Set a target date in Widgets";
+          return;
+        }
+        const tick = () => {
+          const remaining = new Date(target).getTime() - Date.now();
+          if (Number.isNaN(remaining)) {
+            big.textContent = "—";
+            sub.textContent = "Invalid target date";
+            return;
+          }
+          if (remaining <= 0) {
+            big.textContent = "🎉";
+            sub.textContent = "It's here!";
+            return;
+          }
+          const days = Math.floor(remaining / 86400000);
+          const hours = Math.floor((remaining % 86400000) / 3600000);
+          const minutes = Math.floor((remaining % 3600000) / 60000);
+          big.textContent = days > 0 ? `${days}d` : `${hours}h`;
+          sub.textContent =
+            days > 0 ? `${hours}h ${minutes}m to go` : `${minutes}m to go`;
+        };
+        tick();
+        window.setInterval(tick, 1000);
+      }
+
+      async function renderText() {
+        let text = "Your text here";
+        let font = "Segoe UI";
+        let size = 28;
+        try {
+          const rows = await invoke("widgets_list");
+          const row = (rows ?? []).find((entry) => String(entry.id) === String(id));
+          if (row?.settings) {
+            const parsed = JSON.parse(row.settings);
+            if (typeof parsed.text === "string" && parsed.text !== "") {
+              text = parsed.text;
+            }
+            if (typeof parsed.font === "string" && parsed.font.trim() !== "") {
+              font = parsed.font;
+            }
+            if (typeof parsed.size === "number" && Number.isFinite(parsed.size)) {
+              size = parsed.size;
+            }
+          }
+        } catch {
+          /* keep the defaults */
+        }
+        root.replaceChildren(el("div", "label", "Text"));
+        const body = el("div", "text-body", text);
+        body.style.fontFamily = font;
+        body.style.fontSize = `${Math.min(200, Math.max(10, size))}px`;
+        root.append(body);
+      }
+
       if (kind === "system") renderSystem();
       else if (kind === "wallpaper") void renderWallpaper();
+      else if (kind === "calendar") renderCalendar();
+      else if (kind === "countdown") void renderCountdown();
+      else if (kind === "text") void renderText();
       else renderClock();
     </script>
   </body>

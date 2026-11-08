@@ -22,26 +22,28 @@ use serde::Serialize;
 use tauri::{window::Color, AppHandle, Emitter, Manager, Monitor, WebviewUrl, WebviewWindowBuilder};
 
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    ClientToScreen, CreateRectRgn, GetMonitorInfoW, MonitorFromWindow, SetWindowRgn, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 use windows::Win32::UI::Shell::{
     DesktopWallpaper, IDesktopWallpaper, SHQueryUserNotificationState, DESKTOP_WALLPAPER_POSITION,
     DWPOS_CENTER, DWPOS_FILL, DWPOS_FIT, DWPOS_SPAN, DWPOS_STRETCH, QUNS_BUSY,
     QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetForegroundWindow, GetWindow,
-    GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsWindow, SendMessageTimeoutW,
-    SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-    GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT, LWA_ALPHA, SMTO_NORMAL, SWP_NOACTIVATE,
-    SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WS_CAPTION, WS_CHILD, WS_EX_LAYERED,
-    WS_EX_NOREDIRECTIONBITMAP, WS_POPUP,
+    EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetClientRect, GetCursorPos,
+    GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
+    IsWindow, SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW,
+    SetWindowPos, ShowWindow, WindowFromPoint, GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT,
+    LWA_ALPHA, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    SW_SHOWNOACTIVATE, WS_CAPTION, WS_CHILD, WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_POPUP,
 };
 
 use crate::storage::{self, AppState};
@@ -106,6 +108,10 @@ struct Surface {
 
 pub struct HostState {
     inner: Mutex<HostInner>,
+    /// Serializes widget command bodies (database write + desktop sync) and
+    /// background syncs, so concurrent operations can never rebuild the
+    /// desktop from a stale row snapshot.
+    serial: Mutex<()>,
 }
 
 struct HostInner {
@@ -133,6 +139,7 @@ struct WidgetWindow {
     y: i32,
     width: u32,
     height: u32,
+    settings: Option<String>,
 }
 
 impl WidgetWindow {
@@ -143,12 +150,21 @@ impl WidgetWindow {
             && self.y == row.y
             && self.width == row.width
             && self.height == row.height
+            && self.settings == row.settings
     }
 }
 
 impl HostState {
+    /// Serialization guard shared by widget commands and syncs.
+    pub fn serial_lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
+        self.serial
+            .lock()
+            .map_err(|e| format!("host serial lock poisoned: {e}"))
+    }
+
     pub fn new() -> Self {
         HostState {
+            serial: Mutex::new(()),
             inner: Mutex::new(HostInner {
                 surfaces: HashMap::new(),
                 parent: None,
@@ -533,6 +549,67 @@ fn attach_surface(hwnd: HWND, layer: &LayerHost, rect: (i32, i32, u32, u32)) -> 
     };
     unsafe { let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE); };
 
+    // The window class keeps an invisible non-client border after the style
+    // change; its pixels were showing as pale lines at the edges. Grow the
+    // window by that border so the client area equals the intended
+    // rectangle exactly, then clip the window to its client area — the
+    // edges are then pixel-exact with nothing showing around them.
+    unsafe {
+        let mut client = RECT::default();
+        let mut window_rect = RECT::default();
+        let mut origin = POINT { x: 0, y: 0 };
+        if GetClientRect(hwnd, &mut client).is_ok()
+            && GetWindowRect(hwnd, &mut window_rect).is_ok()
+            && ClientToScreen(hwnd, &mut origin).as_bool()
+        {
+            let offset_x = origin.x - window_rect.left;
+            let offset_y = origin.y - window_rect.top;
+            let chrome_w = (window_rect.right - window_rect.left) - client.right;
+            let chrome_h = (window_rect.bottom - window_rect.top) - client.bottom;
+            if chrome_w != 0 || chrome_h != 0 {
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    child_x - offset_x,
+                    child_y - offset_y,
+                    mw as i32 + chrome_w,
+                    mh as i32 + chrome_h,
+                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
+                );
+            }
+
+            // Re-measure after the resize, then clip to the client area.
+            let mut client = RECT::default();
+            let mut window_rect = RECT::default();
+            let mut origin = POINT { x: 0, y: 0 };
+            if GetClientRect(hwnd, &mut client).is_ok()
+                && GetWindowRect(hwnd, &mut window_rect).is_ok()
+                && ClientToScreen(hwnd, &mut origin).as_bool()
+            {
+                let offset_x = origin.x - window_rect.left;
+                let offset_y = origin.y - window_rect.top;
+                let region = CreateRectRgn(
+                    offset_x,
+                    offset_y,
+                    offset_x + client.right,
+                    offset_y + client.bottom,
+                );
+                // On success the system owns the region; a rare failure
+                // just leaks it until process exit.
+                let _ = SetWindowRgn(hwnd, Some(region), true);
+                log_line(&format!(
+                    "attach: client {}x{} at +{},{} in window {}x{}",
+                    client.right,
+                    client.bottom,
+                    offset_x,
+                    offset_y,
+                    window_rect.right - window_rect.left,
+                    window_rect.bottom - window_rect.top,
+                ));
+            }
+        }
+    }
+
     Ok(child_chain_contains(layer.parent, hwnd))
 }
 
@@ -777,6 +854,21 @@ fn url_encode(input: &str) -> String {
     out
 }
 
+/// Destroys a window by label and waits (bounded) until the manager has
+/// released the label — destroys are dispatched to the event loop, so an
+/// immediate rebuild with the same label would race it.
+fn release_window_label(app: &AppHandle, label: &str) {
+    if let Some(existing) = app.get_webview_window(label) {
+        let _ = existing.destroy();
+        for _ in 0..50 {
+            if app.get_webview_window(label).is_none() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(40));
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn create_surface(
     app: &AppHandle,
@@ -791,9 +883,7 @@ fn create_surface(
     layer: &LayerHost,
 ) -> Result<Surface, String> {
     let label = format!("gs-wallpaper-{index}");
-    if let Some(existing) = app.get_webview_window(&label) {
-        let _ = existing.destroy();
-    }
+    release_window_label(app, &label);
 
     let position = monitor.position();
     let size = monitor.size();
@@ -1254,6 +1344,182 @@ pub fn set_paused(app: &AppHandle, host: &HostState, paused: bool) -> Result<(),
 }
 
 /* ------------------------------------------------------------------ */
+/* Widget drag watcher                                                 */
+/* ------------------------------------------------------------------ */
+
+/// How often the drag watcher samples the mouse while idle.
+const DRAG_POLL_MS: u64 = 40;
+
+#[derive(Clone, Copy)]
+struct DragState {
+    widget_id: i64,
+    offset_x: i32,
+    offset_y: i32,
+    monitor: u32,
+    width: u32,
+    height: u32,
+}
+
+/// True when the topmost window at the point belongs to the desktop shell —
+/// i.e. the click really lands on the desktop and not on an app window.
+fn cursor_owns_desktop(cursor: POINT) -> bool {
+    unsafe {
+        let hwnd = WindowFromPoint(cursor);
+        if hwnd.0.is_null() {
+            return false;
+        }
+        let mut class_buffer = [0u16; 128];
+        let length = GetClassNameW(hwnd, &mut class_buffer);
+        let class = if length > 0 {
+            String::from_utf16_lossy(&class_buffer[..length as usize])
+        } else {
+            String::new()
+        };
+        matches!(
+            class.as_str(),
+            "SHELLDLL_DefView" | "SysListView32" | "Progman" | "WorkerW"
+        )
+    }
+}
+
+fn begin_drag(app: &AppHandle, host: &HostState, cursor: POINT) -> Option<DragState> {
+    if !cursor_owns_desktop(cursor) {
+        return None;
+    }
+    let monitors = app.available_monitors().unwrap_or_default();
+    let inner = host.inner.lock().ok()?;
+    for (id, widget) in inner.widgets.iter() {
+        let monitor = monitors.get(widget.monitor as usize)?;
+        let position = monitor.position();
+        let left = position.x + widget.x;
+        let top = position.y + widget.y;
+        if cursor.x >= left
+            && cursor.x < left + widget.width as i32
+            && cursor.y >= top
+            && cursor.y < top + widget.height as i32
+        {
+            return Some(DragState {
+                widget_id: *id,
+                offset_x: cursor.x - left,
+                offset_y: cursor.y - top,
+                monitor: widget.monitor,
+                width: widget.width,
+                height: widget.height,
+            });
+        }
+    }
+    None
+}
+
+fn drag_move(app: &AppHandle, host: &HostState, drag: &DragState, cursor: POINT) {
+    let (parent_raw, label) = {
+        let Ok(inner) = host.inner.lock() else {
+            return;
+        };
+        let Some(parent) = inner.parent else {
+            return;
+        };
+        let Some(widget) = inner.widgets.get(&drag.widget_id) else {
+            return;
+        };
+        (parent, widget.label.clone())
+    };
+    let parent = hwnd_from_raw(parent_raw);
+    let mut parent_rect = RECT::default();
+    if unsafe { GetWindowRect(parent, &mut parent_rect) }.is_err() {
+        return;
+    }
+    let Some(window) = app.get_webview_window(&label) else {
+        return;
+    };
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    let screen_x = cursor.x - drag.offset_x;
+    let screen_y = cursor.y - drag.offset_y;
+    let _ = unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            screen_x - parent_rect.left,
+            screen_y - parent_rect.top,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    };
+}
+
+fn finish_drag(app: &AppHandle, host: &HostState, state: &AppState, drag: &DragState, cursor: POINT) {
+    let monitors = app.available_monitors().unwrap_or_default();
+    let Some(monitor) = monitors.get(drag.monitor as usize) else {
+        return;
+    };
+    let position = monitor.position();
+    let size = monitor.size();
+    let max_x = (size.width as i32 - drag.width as i32).max(0);
+    let max_y = (size.height as i32 - drag.height as i32).max(0);
+    let new_x = (cursor.x - drag.offset_x - position.x).clamp(0, max_x);
+    let new_y = (cursor.y - drag.offset_y - position.y).clamp(0, max_y);
+
+    // Persist and keep the live map in step so the next sync reuses the
+    // window exactly where it was dropped.
+    if let Ok(conn) = state.db.lock() {
+        let _ = conn.execute(
+            "UPDATE widgets SET x = ?1, y = ?2 WHERE id = ?3",
+            rusqlite::params![new_x, new_y, drag.widget_id],
+        );
+    }
+    if let Ok(mut inner) = host.inner.lock() {
+        if let Some(widget) = inner.widgets.get_mut(&drag.widget_id) {
+            widget.x = new_x;
+            widget.y = new_y;
+        }
+    }
+    log_line(&format!(
+        "widget drag: id={} moved to {},{}",
+        drag.widget_id, new_x, new_y
+    ));
+    let _ = app.emit("host:state", ());
+}
+
+/// Polls the mouse and drags widget windows when the desktop itself is
+/// clicked — widgets live behind the icons layer, so they cannot receive
+/// clicks directly.
+fn drag_watcher(app: AppHandle) {
+    thread::spawn(move || {
+        let mut dragging: Option<DragState> = None;
+        let mut button_was_down = false;
+        loop {
+            thread::sleep(Duration::from_millis(DRAG_POLL_MS));
+            let host = app.state::<HostState>();
+            let state = app.state::<AppState>();
+            let button_down =
+                (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+            let mut cursor = POINT::default();
+            if unsafe { GetCursorPos(&mut cursor) }.is_err() {
+                continue;
+            }
+
+            if button_down && !button_was_down {
+                if dragging.is_none() {
+                    dragging = begin_drag(&app, &host, cursor);
+                }
+            } else if button_down {
+                if let Some(active) = dragging {
+                    drag_move(&app, &host, &active, cursor);
+                }
+            } else if !button_down && button_was_down {
+                if let Some(active) = dragging.take() {
+                    finish_drag(&app, &host, &state, &active, cursor);
+                }
+            }
+            button_was_down = button_down;
+        }
+    });
+}
+
+/* ------------------------------------------------------------------ */
 /* Widgets                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -1264,9 +1530,7 @@ fn create_widget_window(
     row: &storage::WidgetRow,
 ) -> Result<WidgetWindow, String> {
     let label = format!("gs-widget-{}", row.id);
-    if let Some(existing) = app.get_webview_window(&label) {
-        let _ = existing.destroy();
-    }
+    release_window_label(app, &label);
 
     let page = format!("widget.html?kind={}&id={}", url_encode(&row.kind), row.id);
     let window = WebviewWindowBuilder::new(app, label.as_str(), WebviewUrl::App(page.into()))
@@ -1323,12 +1587,14 @@ fn create_widget_window(
         y: row.y,
         width: row.width,
         height: row.height,
+        settings: row.settings.clone(),
     })
 }
 
-/// Brings the desktop layer in line with the widgets table: creates new
-/// windows, rebuilds changed ones, removes deleted/disabled ones.
+/// Brings the desktop layer in line with the widgets table. Takes the
+/// serial lock so it cannot interleave with widget commands.
 pub fn sync_widgets(app: &AppHandle, host: &HostState, state: &AppState) -> Result<usize, String> {
+    let _serial = host.serial_lock()?;
     let rows: Vec<storage::WidgetRow> = {
         let conn = state
             .db
@@ -1336,7 +1602,21 @@ pub fn sync_widgets(app: &AppHandle, host: &HostState, state: &AppState) -> Resu
             .map_err(|e| format!("database lock poisoned: {e}"))?;
         storage::list_widgets(&conn)?
     };
-    let enabled: Vec<storage::WidgetRow> = rows.into_iter().filter(|row| row.enabled).collect();
+    sync_widgets_rows(app, host, &rows)
+}
+
+/// Syncs from an already-read row snapshot; the caller must hold the serial
+/// lock (widget commands take it around their write + this call).
+pub fn sync_widgets_rows(
+    app: &AppHandle,
+    host: &HostState,
+    rows: &[storage::WidgetRow],
+) -> Result<usize, String> {
+    let enabled: Vec<storage::WidgetRow> = rows
+        .iter()
+        .filter(|row| row.enabled)
+        .cloned()
+        .collect();
 
     let monitors = app
         .available_monitors()
@@ -1511,7 +1791,21 @@ fn rotation_tick(app: &AppHandle, host: &HostState, state: &AppState) {
 /* ------------------------------------------------------------------ */
 
 pub fn init(app: &AppHandle) {
+    // Log the monitor list once: harnesses map screen coordinates to the
+    // app's monitor indexes from these lines.
+    if let Ok(monitors) = app.available_monitors() {
+        for (index, monitor) in monitors.iter().enumerate() {
+            let position = monitor.position();
+            let size = monitor.size();
+            log_line(&format!(
+                "monitor[{index}]: origin {},{} size {}x{}",
+                position.x, position.y, size.width, size.height
+            ));
+        }
+    }
+
     let handle = app.clone();
+    drag_watcher(handle.clone());
     thread::spawn(move || {
         log_line("governor: active (fullscreen + battery watch)");
         loop {

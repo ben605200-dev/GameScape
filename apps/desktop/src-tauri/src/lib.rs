@@ -313,10 +313,14 @@ async fn widget_create(
     kind: String,
     monitor: Option<u32>,
 ) -> Result<i64, String> {
-    if !matches!(kind.as_str(), "clock" | "system" | "wallpaper") {
+    if !matches!(
+        kind.as_str(),
+        "clock" | "system" | "wallpaper" | "calendar" | "countdown" | "text"
+    ) {
         return Err(format!("unknown widget kind: {kind}"));
     }
-    let id = {
+    let _serial = host.serial_lock()?;
+    let (id, rows) = {
         let conn = state
             .db
             .lock()
@@ -329,9 +333,11 @@ async fn widget_create(
             rusqlite::params![kind, monitor.unwrap_or(0), 40 + (count % 6) * 60],
         )
         .map_err(|e| format!("cannot create the widget: {e}"))?;
-        conn.last_insert_rowid()
+        let id = conn.last_insert_rowid();
+        let rows = storage::list_widgets(&conn)?;
+        (id, rows)
     };
-    desktop_host::sync_widgets(&app, host.inner(), state.inner())?;
+    desktop_host::sync_widgets_rows(&app, host.inner(), &rows)?;
     Ok(id)
 }
 
@@ -347,24 +353,45 @@ async fn widget_update(
     y: i32,
     width: u32,
     height: u32,
+    settings: Option<String>,
 ) -> Result<(), String> {
     let width = width.clamp(120, 2000);
     let height = height.clamp(80, 1200);
-    {
+    if let Some(raw) = &settings {
+        if raw.len() > 4096 {
+            desktop_host::log_line(&format!("widget update: id={id} rejected (settings too large)"));
+            return Err("widget settings are too large".to_string());
+        }
+        // Settings ride to the widget page as JSON; reject anything broken.
+        if let Err(error) = serde_json::from_str::<serde_json::Value>(raw) {
+            desktop_host::log_line(&format!("widget update: id={id} rejected: {error}"));
+            return Err(format!("widget settings must be valid JSON: {error}"));
+        }
+    }
+    let _serial = host.serial_lock()?;
+    let rows = {
         let conn = state
             .db
             .lock()
             .map_err(|e| format!("database lock poisoned: {e}"))?;
         conn.execute(
             "UPDATE widgets
-             SET enabled = ?1, monitor = ?2, x = ?3, y = ?4, width = ?5, height = ?6
-             WHERE id = ?7",
-            rusqlite::params![enabled as i64, monitor, x, y, width, height, id],
+             SET enabled = ?1, monitor = ?2, x = ?3, y = ?4, width = ?5, height = ?6,
+                 settings = ?7
+             WHERE id = ?8",
+            rusqlite::params![enabled as i64, monitor, x, y, width, height, settings, id],
         )
         .map_err(|e| format!("cannot update the widget: {e}"))?;
+        storage::list_widgets(&conn)?
+    };
+    let outcome = desktop_host::sync_widgets_rows(&app, host.inner(), &rows);
+    match &outcome {
+        Ok(count) => desktop_host::log_line(&format!(
+            "widget update: id={id} applied (widgets on desktop: {count})"
+        )),
+        Err(error) => desktop_host::log_line(&format!("widget update: id={id} failed: {error}")),
     }
-    desktop_host::sync_widgets(&app, host.inner(), state.inner())?;
-    Ok(())
+    outcome.map(|_| ())
 }
 
 #[tauri::command]
@@ -374,15 +401,17 @@ async fn widget_remove(
     host: tauri::State<'_, desktop_host::HostState>,
     id: i64,
 ) -> Result<(), String> {
-    {
+    let _serial = host.serial_lock()?;
+    let rows = {
         let conn = state
             .db
             .lock()
             .map_err(|e| format!("database lock poisoned: {e}"))?;
         conn.execute("DELETE FROM widgets WHERE id = ?1", [id])
             .map_err(|e| format!("cannot remove the widget: {e}"))?;
-    }
-    desktop_host::sync_widgets(&app, host.inner(), state.inner())?;
+        storage::list_widgets(&conn)?
+    };
+    desktop_host::sync_widgets_rows(&app, host.inner(), &rows)?;
     Ok(())
 }
 

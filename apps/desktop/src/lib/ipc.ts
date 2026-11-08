@@ -392,6 +392,7 @@ export const widgetUpdate = (
     y: number;
     width: number;
     height: number;
+    settings?: string | null;
   },
 ) => runAction<void>("widget_update", { id, ...patch });
 
