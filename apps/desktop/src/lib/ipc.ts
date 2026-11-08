@@ -342,6 +342,20 @@ export interface HostReport {
 export const hostApplyMedia = (mediaId: number, monitor?: number | null) =>
   runAction<string>("host_apply_media", { mediaId, monitor: monitor ?? null });
 
+/** Apply a cursor-reactive catalogue wallpaper (renders live on the desktop). */
+export const hostApplyInteractive = (
+  mediaId: number,
+  effect: string,
+  dominant: string,
+  accent: string,
+) =>
+  runAction<void>("host_apply_interactive", {
+    mediaId,
+    effect,
+    dominant,
+    accent,
+  });
+
 export const hostStop = () => runAction<void>("host_stop");
 
 export const hostSetPaused = (paused: boolean) =>

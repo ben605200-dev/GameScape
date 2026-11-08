@@ -1285,6 +1285,55 @@ pub fn apply_library_item(
     Ok(kind.to_string())
 }
 
+fn sanitize_hex(value: &str) -> Option<String> {
+    let hex = value.trim().trim_start_matches('#').to_ascii_lowercase();
+    (hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit())).then_some(hex)
+}
+
+/// Applies a cursor-reactive catalogue wallpaper: live surfaces render the
+/// effect and follow the cursor bridge.
+pub fn apply_interactive(
+    app: &AppHandle,
+    state: &AppState,
+    host: &HostState,
+    media_id: i64,
+    effect: &str,
+    dominant: &str,
+    accent: &str,
+) -> Result<(), String> {
+    let effect = match effect {
+        "ribbon" | "grid" | "orbit" => effect,
+        _ => "orbit",
+    };
+    let dominant = sanitize_hex(dominant).ok_or("invalid dominant colour")?;
+    let accent = sanitize_hex(accent).ok_or("invalid accent colour")?;
+    let token = format!("{effect}|{dominant}|{accent}");
+    let title = format!("Interactive · {effect}");
+    let (fit_name, _) = configured_fit(state);
+    apply_animated(
+        app,
+        host,
+        &token,
+        "interactive",
+        &title,
+        media_id,
+        fit_name,
+        None,
+    )?;
+    remember_last_wallpaper(
+        state,
+        host,
+        "interactive",
+        media_id,
+        &token,
+        None,
+        &title,
+        None,
+    );
+    log_line(&format!("HOST_APPLY_OK interactive {effect}"));
+    Ok(())
+}
+
 /// Remembers the wallpaper just applied (startup restore) and restarts the
 /// rotation clock so scheduled changes do not fire right after a manual one.
 pub fn remember_last_wallpaper(
@@ -1483,13 +1532,84 @@ fn finish_drag(app: &AppHandle, host: &HostState, state: &AppState, drag: &DragS
     let _ = app.emit("host:state", ());
 }
 
-/// Polls the mouse and drags widget windows when the desktop itself is
-/// clicked — widgets live behind the icons layer, so they cannot receive
-/// clicks directly.
+/// Forwards the cursor to interactive wallpaper surfaces (physical,
+/// monitor-relative coordinates). Skips work when the cursor has not moved.
+fn bridge_cursor(
+    app: &AppHandle,
+    host: &HostState,
+    cursor: POINT,
+    last: &mut Option<POINT>,
+    monitors: &mut Option<(Instant, Vec<(i32, i32, u32, u32)>)>,
+) {
+    if let Some(previous) = last {
+        if previous.x == cursor.x && previous.y == cursor.y {
+            return;
+        }
+    }
+    *last = Some(cursor);
+
+    let surfaces: Vec<(String, u32)> = {
+        let Ok(inner) = host.inner.lock() else {
+            return;
+        };
+        inner
+            .surfaces
+            .values()
+            .filter(|surface| surface.kind == "interactive")
+            .map(|surface| (surface.label.clone(), surface.monitor_index))
+            .collect()
+    };
+    if surfaces.is_empty() {
+        return;
+    }
+
+    let stale = monitors
+        .as_ref()
+        .map(|(at, _)| at.elapsed().as_secs() >= 3)
+        .unwrap_or(true);
+    if stale {
+        let list = app
+            .available_monitors()
+            .unwrap_or_default()
+            .iter()
+            .map(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                (position.x, position.y, size.width, size.height)
+            })
+            .collect();
+        *monitors = Some((Instant::now(), list));
+    }
+    let Some((_, list)) = monitors.as_ref() else {
+        return;
+    };
+
+    for (label, index) in surfaces {
+        let Some((x, y, width, height)) = list.get(index as usize) else {
+            continue;
+        };
+        let rel_x = cursor.x - x;
+        let rel_y = cursor.y - y;
+        if rel_x < 0 || rel_y < 0 || rel_x >= *width as i32 || rel_y >= *height as i32 {
+            continue;
+        }
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.eval(&format!(
+                "window.__gsHost && window.__gsHost.cursor({rel_x}, {rel_y});"
+            ));
+        }
+    }
+}
+
+/// Polls the mouse: drags widget windows when the desktop itself is clicked
+/// — widgets live behind the icons layer, so they cannot receive clicks
+/// directly — and feeds the cursor to interactive wallpaper surfaces.
 fn drag_watcher(app: AppHandle) {
     thread::spawn(move || {
         let mut dragging: Option<DragState> = None;
         let mut button_was_down = false;
+        let mut cursor_last: Option<POINT> = None;
+        let mut monitor_cache: Option<(Instant, Vec<(i32, i32, u32, u32)>)> = None;
         loop {
             thread::sleep(Duration::from_millis(DRAG_POLL_MS));
             let host = app.state::<HostState>();
@@ -1500,6 +1620,7 @@ fn drag_watcher(app: AppHandle) {
             if unsafe { GetCursorPos(&mut cursor) }.is_err() {
                 continue;
             }
+            bridge_cursor(&app, &host, cursor, &mut cursor_last, &mut monitor_cache);
 
             if button_down && !button_was_down {
                 if dragging.is_none() {
@@ -1963,7 +2084,7 @@ pub fn startup_restore(app: &AppHandle) {
         let Some(last) = last else {
             return;
         };
-        if !std::path::Path::new(&last.path).exists() {
+        if last.kind != "interactive" && !std::path::Path::new(&last.path).exists() {
             log_line("startup restore: skipped (file missing)");
             return;
         }

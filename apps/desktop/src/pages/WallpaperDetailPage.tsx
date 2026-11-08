@@ -6,6 +6,7 @@ import { InteractivePreview } from "../components/InteractivePreview";
 import { effectStyleOf } from "../lib/catalogue";
 import {
   catalogueGenerate,
+  hostApplyInteractive,
   hostApplyMedia,
   IN_TAURI,
   loadCatalogue,
@@ -38,11 +39,23 @@ export function WallpaperDetailPage() {
       setApplying(false);
       return;
     }
-    const applied = await hostApplyMedia(generated.value);
+    const interactive = entry.interactive && entry.effect;
+    const applied = interactive
+      ? await hostApplyInteractive(
+          generated.value,
+          entry.effect!.style,
+          entry.placeholder.dominantHex,
+          entry.placeholder.accentHex,
+        )
+      : await hostApplyMedia(generated.value);
     if (!applied.ok) {
       setError(applied.error);
     } else {
-      setFlash("Applied — saved to your library");
+      setFlash(
+        interactive
+          ? "Interactive wallpaper applied — it follows your mouse"
+          : "Applied — saved to your library",
+      );
       window.setTimeout(() => setFlash(null), 5000);
     }
     setApplying(false);

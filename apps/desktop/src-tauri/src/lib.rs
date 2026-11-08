@@ -242,6 +242,29 @@ async fn host_apply_media(
     desktop_host::apply_library_item(&app, state.inner(), host.inner(), media_id, monitor)
 }
 
+/// Apply a cursor-reactive catalogue wallpaper (renders live on the
+/// desktop and follows the mouse through the cursor bridge).
+#[tauri::command]
+async fn host_apply_interactive(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+    media_id: i64,
+    effect: String,
+    dominant: String,
+    accent: String,
+) -> Result<(), String> {
+    desktop_host::apply_interactive(
+        &app,
+        state.inner(),
+        host.inner(),
+        media_id,
+        &effect,
+        &dominant,
+        &accent,
+    )
+}
+
 #[tauri::command]
 async fn host_stop(
     app: tauri::AppHandle,
@@ -854,6 +877,7 @@ pub fn run() {
             settings_get,
             settings_set,
             host_turn_off,
+            host_apply_interactive,
             catalogue_generate,
             widgets_list,
             widget_create,
