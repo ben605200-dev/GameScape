@@ -238,14 +238,22 @@
         resize();
         window.addEventListener("resize", resize);
 
+        let lastFrame = 0;
         const frame = (now) => {
           if (!paused) {
-            cur.x += (cursorTarget.x - cur.x) * 0.08;
-            cur.y += (cursorTarget.y - cur.y) * 0.08;
+            // Frame-rate-independent catch-up: a ~60 ms time constant keeps
+            // the effect glued to the cursor while still gliding smoothly.
+            const dt = lastFrame
+              ? Math.min(64, Math.max(1, now - lastFrame))
+              : 16;
+            lastFrame = now;
+            const k = 1 - Math.exp(-dt / 60);
+            cur.x += (cursorTarget.x - cur.x) * k;
+            cur.y += (cursorTarget.y - cur.y) * k;
             const cx = cur.x * W;
             const cy = cur.y * H;
 
-            const lifetime = effect === "ribbon" ? 900 : 650;
+            const lifetime = effect === "ribbon" ? 560 : 380;
             trail.push({ x: cx, y: cy, t: now });
             while (trail.length && now - trail[0].t > lifetime) trail.shift();
 

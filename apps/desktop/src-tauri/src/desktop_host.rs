@@ -1396,8 +1396,23 @@ pub fn set_paused(app: &AppHandle, host: &HostState, paused: bool) -> Result<(),
 /* Widget drag watcher                                                 */
 /* ------------------------------------------------------------------ */
 
-/// How often the drag watcher samples the mouse while idle.
+/// Mouse polling cadence: relaxed while idle, display-rate while interactive
+/// wallpaper surfaces are live (they need the cursor to follow the mouse
+/// smoothly) or a drag is in progress.
 const DRAG_POLL_MS: u64 = 40;
+const DRAG_POLL_FAST_MS: u64 = 12;
+
+fn has_interactive_surfaces(host: &HostState) -> bool {
+    host.inner
+        .lock()
+        .map(|inner| {
+            inner
+                .surfaces
+                .values()
+                .any(|surface| surface.kind == "interactive")
+        })
+        .unwrap_or(false)
+}
 
 #[derive(Clone, Copy)]
 struct DragState {
@@ -1610,8 +1625,9 @@ fn drag_watcher(app: AppHandle) {
         let mut button_was_down = false;
         let mut cursor_last: Option<POINT> = None;
         let mut monitor_cache: Option<(Instant, Vec<(i32, i32, u32, u32)>)> = None;
+        let mut interval = DRAG_POLL_MS;
         loop {
-            thread::sleep(Duration::from_millis(DRAG_POLL_MS));
+            thread::sleep(Duration::from_millis(interval));
             let host = app.state::<HostState>();
             let state = app.state::<AppState>();
             let button_down =
@@ -1636,6 +1652,11 @@ fn drag_watcher(app: AppHandle) {
                 }
             }
             button_was_down = button_down;
+            interval = if dragging.is_some() || has_interactive_surfaces(&host) {
+                DRAG_POLL_FAST_MS
+            } else {
+                DRAG_POLL_MS
+            };
         }
     });
 }
