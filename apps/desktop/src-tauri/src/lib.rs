@@ -444,7 +444,7 @@ async fn widget_create(
 ) -> Result<i64, String> {
     if !matches!(
         kind.as_str(),
-        "clock" | "system" | "wallpaper" | "calendar" | "countdown" | "text"
+        "clock" | "system" | "wallpaper" | "calendar" | "countdown" | "text" | "launcher"
     ) {
         return Err(format!("unknown widget kind: {kind}"));
     }
@@ -556,6 +556,26 @@ async fn widgets_sync(
 #[tauri::command]
 fn system_stats() -> Result<system_info::SystemStats, String> {
     system_info::sample()
+}
+
+/// Opens a link or file from a widget (e.g. Launcher buttons). The target
+/// comes from the user's own widget settings.
+#[tauri::command]
+fn widget_open(target: String) -> Result<(), String> {
+    let target = target.trim().to_string();
+    if target.is_empty() || target.len() > 500 {
+        return Err("invalid link target".to_string());
+    }
+    desktop_host::log_line(&format!("widget open: {target}"));
+    let result = if target.starts_with("http://") || target.starts_with("https://") {
+        tauri_plugin_opener::open_url(target.as_str(), None::<&str>)
+    } else {
+        tauri_plugin_opener::open_path(target.as_str(), None::<&str>)
+    };
+    result.map_err(|error| {
+        desktop_host::log_line(&format!("widget open failed: {error}"));
+        error.to_string()
+    })
 }
 
 #[tauri::command]
@@ -885,6 +905,7 @@ pub fn run() {
             widget_remove,
             widgets_sync,
             system_stats,
+            widget_open,
             db_health,
             catalogue_load,
             import_paths,

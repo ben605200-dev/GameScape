@@ -7,8 +7,10 @@ import {
   Image,
   LayoutGrid,
   Plus,
+  Rocket,
   Trash2,
   Type,
+  X,
 } from "lucide-react";
 import {
   hostStatus,
@@ -28,7 +30,13 @@ const KIND_LABELS: Record<string, string> = {
   calendar: "Calendar",
   countdown: "Countdown",
   text: "Text",
+  launcher: "Launcher",
 };
+
+interface LauncherItem {
+  label: string;
+  target: string;
+}
 
 const TEXT_FONTS = [
   "Segoe UI",
@@ -50,6 +58,7 @@ interface WidgetDraft {
   text?: string;
   font?: string;
   size?: number;
+  items?: LauncherItem[];
 }
 
 function kindIcon(kind: string) {
@@ -58,6 +67,7 @@ function kindIcon(kind: string) {
   if (kind === "calendar") return Calendar;
   if (kind === "countdown") return Hourglass;
   if (kind === "text") return Type;
+  if (kind === "launcher") return Rocket;
   return Clock;
 }
 
@@ -85,10 +95,8 @@ export function WidgetsPage() {
             let text: string | undefined;
             let font: string | undefined;
             let size: number | undefined;
-            if (
-              widget.settings &&
-              (widget.kind === "countdown" || widget.kind === "text")
-            ) {
+            let items: LauncherItem[] | undefined;
+            if (widget.settings) {
               try {
                 const parsed = JSON.parse(widget.settings) as {
                   label?: string;
@@ -96,12 +104,21 @@ export function WidgetsPage() {
                   text?: string;
                   font?: string;
                   size?: number;
+                  items?: LauncherItem[];
                 };
                 label = parsed.label;
                 target = parsed.target;
                 text = parsed.text;
                 font = parsed.font;
                 size = parsed.size;
+                if (widget.kind === "launcher" && Array.isArray(parsed.items)) {
+                  items = parsed.items.filter(
+                    (item) =>
+                      item &&
+                      typeof item.label === "string" &&
+                      typeof item.target === "string",
+                  );
+                }
               } catch {
                 /* settings unreadable; keep the defaults */
               }
@@ -120,6 +137,7 @@ export function WidgetsPage() {
                 text,
                 font,
                 size,
+                items,
               },
             ];
           }),
@@ -162,6 +180,16 @@ export function WidgetsPage() {
         text: draft.text ?? "",
         font: draft.font ?? "Segoe UI",
         size: draft.size ?? 28,
+      });
+    } else if (kind === "launcher") {
+      settings = JSON.stringify({
+        items: (draft.items ?? [])
+          .map((item) => ({
+            label: item.label.trim() || "Shortcut",
+            target: item.target.trim(),
+          }))
+          .filter((item) => item.target !== "")
+          .slice(0, 6),
       });
     }
     const result = await widgetUpdate(id, {
@@ -230,6 +258,7 @@ export function WidgetsPage() {
             <option value="calendar">Calendar</option>
             <option value="countdown">Countdown</option>
             <option value="text">Text</option>
+            <option value="launcher">Launcher</option>
             <option value="system">System monitor</option>
             <option value="wallpaper">Wallpaper status</option>
           </select>
@@ -439,6 +468,82 @@ export function WidgetsPage() {
                     disabled={!IN_TAURI || busy}
                   />
                 </label>
+              </div>
+            )}
+            {draft && widget.kind === "launcher" && (
+              <div className="stack">
+                {(draft.items ?? []).map((item, index) => (
+                  <div className="row" key={index}>
+                    <input
+                      className="button"
+                      style={{ width: "150px" }}
+                      type="text"
+                      placeholder="Label"
+                      value={item.label}
+                      onChange={(event) => {
+                        const items = [...(draft.items ?? [])];
+                        items[index] = {
+                          ...items[index],
+                          label: event.target.value,
+                        };
+                        setDraft(widget.id, { items });
+                      }}
+                      disabled={!IN_TAURI || busy}
+                    />
+                    <input
+                      className="button"
+                      style={{ flex: 1 }}
+                      type="text"
+                      placeholder="Link or path (https://… or C:\\Games\\…)"
+                      value={item.target}
+                      onChange={(event) => {
+                        const items = [...(draft.items ?? [])];
+                        items[index] = {
+                          ...items[index],
+                          target: event.target.value,
+                        };
+                        setDraft(widget.id, { items });
+                      }}
+                      disabled={!IN_TAURI || busy}
+                    />
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() =>
+                        setDraft(widget.id, {
+                          items: (draft.items ?? []).filter(
+                            (_, itemIndex) => itemIndex !== index,
+                          ),
+                        })
+                      }
+                      disabled={!IN_TAURI || busy}
+                    >
+                      <X size={14} aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+                <div className="row">
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() =>
+                      setDraft(widget.id, {
+                        items: [
+                          ...(draft.items ?? []),
+                          { label: "", target: "" },
+                        ].slice(0, 6),
+                      })
+                    }
+                    disabled={
+                      !IN_TAURI || busy || (draft.items ?? []).length >= 6
+                    }
+                  >
+                    <Plus size={14} aria-hidden="true" /> Add shortcut
+                  </button>
+                  <span className="muted" style={{ fontSize: 12.5 }}>
+                    Up to 6 shortcuts — click them right on the desktop.
+                  </span>
+                </div>
               </div>
             )}
           </div>

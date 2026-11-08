@@ -127,6 +127,37 @@
         color: #e8eef6;
         overflow: hidden;
       }
+
+      .launch-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 5%;
+        margin-top: 3%;
+      }
+
+      .launch-item {
+        padding: 7% 5%;
+        border-radius: 6px;
+        border: 1px solid rgba(120, 170, 255, 0.35);
+        background: rgba(20, 28, 40, 0.9);
+        color: #e8eef6;
+        font-family: inherit;
+        font-size: min(3.6vh, 14px);
+        text-align: center;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .launch-item:hover {
+        background: rgba(48, 72, 110, 0.95);
+        border-color: rgba(140, 190, 255, 0.6);
+      }
+
+      .launch-item:active {
+        background: rgba(70, 110, 170, 0.95);
+      }
     </style>
   </head>
   <body>
@@ -381,11 +412,50 @@
         root.append(body);
       }
 
+      async function renderLauncher() {
+        let items = [];
+        try {
+          const rows = await invoke("widgets_list");
+          const row = (rows ?? []).find((entry) => String(entry.id) === String(id));
+          if (row?.settings) {
+            const parsed = JSON.parse(row.settings);
+            if (Array.isArray(parsed.items)) {
+              items = parsed.items.filter(
+                (item) =>
+                  item &&
+                  typeof item.label === "string" &&
+                  typeof item.target === "string" &&
+                  item.target.trim() !== "",
+              );
+            }
+          }
+        } catch {
+          /* fall through to the empty state */
+        }
+
+        root.replaceChildren(el("div", "label", "Launcher"));
+        if (items.length === 0) {
+          root.append(el("div", "sub", "Add shortcuts in the Widgets page"));
+          return;
+        }
+        const grid = el("div", "launch-grid");
+        for (const item of items.slice(0, 6)) {
+          const button = el("button", "launch-item", item.label);
+          button.type = "button";
+          button.addEventListener("click", () => {
+            invoke("widget_open", { target: item.target }).catch(() => {});
+          });
+          grid.append(button);
+        }
+        root.append(grid);
+      }
+
       if (kind === "system") renderSystem();
       else if (kind === "wallpaper") void renderWallpaper();
       else if (kind === "calendar") renderCalendar();
       else if (kind === "countdown") void renderCountdown();
       else if (kind === "text") void renderText();
+      else if (kind === "launcher") void renderLauncher();
       else renderClock();
     </script>
   </body>

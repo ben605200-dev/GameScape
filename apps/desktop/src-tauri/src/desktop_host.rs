@@ -24,8 +24,8 @@ use tauri::{window::Color, AppHandle, Emitter, Manager, Monitor, WebviewUrl, Web
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    ClientToScreen, CreateRectRgn, GetMonitorInfoW, MonitorFromWindow, SetWindowRgn, MONITORINFO,
-    MONITOR_DEFAULTTONEAREST,
+    ClientToScreen, CreateRectRgn, GetMonitorInfoW, MonitorFromWindow, ScreenToClient,
+    SetWindowRgn, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
@@ -40,10 +40,11 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetClientRect, GetCursorPos,
     GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
-    IsWindow, SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW,
-    SetWindowPos, ShowWindow, WindowFromPoint, GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT,
-    LWA_ALPHA, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-    SW_SHOWNOACTIVATE, WS_CAPTION, WS_CHILD, WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_POPUP,
+    IsWindow, PostMessageW, SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, WindowFromPoint, GWL_EXSTYLE, GWL_STYLE, GW_CHILD,
+    GW_HWNDNEXT, LWA_ALPHA, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    SW_SHOWNOACTIVATE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WS_CAPTION, WS_CHILD,
+    WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_POPUP,
 };
 
 use crate::storage::{self, AppState};
@@ -1402,6 +1403,10 @@ pub fn set_paused(app: &AppHandle, host: &HostState, paused: bool) -> Result<(),
 const DRAG_POLL_MS: u64 = 40;
 const DRAG_POLL_FAST_MS: u64 = 12;
 
+/// Movement past this many pixels turns a press into a drag; anything less
+/// (and a quick release) is treated as a click into the widget content.
+const DRAG_THRESHOLD_PX: i32 = 7;
+
 fn has_interactive_surfaces(host: &HostState) -> bool {
     host.inner
         .lock()
@@ -1547,6 +1552,84 @@ fn finish_drag(app: &AppHandle, host: &HostState, state: &AppState, drag: &DragS
     let _ = app.emit("host:state", ());
 }
 
+/// Depth-first search for the WebView2 input child (render widget host).
+fn find_webview_input_hwnd(root: HWND) -> Option<HWND> {
+    let mut best: Option<(HWND, u32)> = None;
+    let mut stack: Vec<HWND> = vec![root];
+    while let Some(parent) = stack.pop() {
+        let mut child = unsafe { GetWindow(parent, GW_CHILD) }.ok();
+        let mut walked = 0;
+        while let Some(current) = child {
+            let mut class_buffer = [0u16; 128];
+            let length = unsafe { GetClassNameW(current, &mut class_buffer) };
+            if length > 0 {
+                let class = String::from_utf16_lossy(&class_buffer[..length as usize]);
+                let rank = match class.as_str() {
+                    "Chrome_RenderWidgetHostHWND" => 3,
+                    "Chrome_WidgetWin_0" | "Chrome_WidgetWin_1" => 2,
+                    _ => 0,
+                };
+                if rank > 0 && best.map(|(_, best_rank)| rank > best_rank).unwrap_or(true) {
+                    best = Some((current, rank));
+                }
+            }
+            stack.push(current);
+            walked += 1;
+            if walked > 2048 {
+                break;
+            }
+            child = unsafe { GetWindow(current, GW_HWNDNEXT) }.ok();
+        }
+    }
+    best.map(|(hwnd, _)| hwnd)
+}
+
+/// Forwards a short click to the widget's webview so its content (buttons,
+/// links) reacts — widgets sit behind the icons layer and never receive
+/// real input directly.
+fn forward_click(app: &AppHandle, host: &HostState, widget_id: i64, cursor: POINT) {
+    let label = {
+        let Ok(inner) = host.inner.lock() else {
+            return;
+        };
+        inner
+            .widgets
+            .get(&widget_id)
+            .map(|widget| widget.label.clone())
+    };
+    let Some(label) = label else {
+        return;
+    };
+    let Some(window) = app.get_webview_window(&label) else {
+        return;
+    };
+    let Ok(widget_hwnd) = window.hwnd() else {
+        return;
+    };
+    let Some(target) = find_webview_input_hwnd(widget_hwnd) else {
+        log_line(&format!(
+            "widget click: no webview input window for id={widget_id}"
+        ));
+        return;
+    };
+    let mut point = cursor;
+    if !unsafe { ScreenToClient(target, &mut point) }.as_bool() {
+        return;
+    }
+    let lparam = ((point.y as isize & 0xFFFF) << 16) | (point.x as isize & 0xFFFF);
+    unsafe {
+        let _ = PostMessageW(Some(target), WM_MOUSEMOVE, WPARAM(0), LPARAM(lparam));
+        thread::sleep(Duration::from_millis(40));
+        let _ = PostMessageW(Some(target), WM_LBUTTONDOWN, WPARAM(0x0001), LPARAM(lparam));
+        thread::sleep(Duration::from_millis(30));
+        let _ = PostMessageW(Some(target), WM_LBUTTONUP, WPARAM(0), LPARAM(lparam));
+    }
+    log_line(&format!(
+        "widget click: forwarded id={widget_id} at {},{}",
+        point.x, point.y
+    ));
+}
+
 /// Forwards the cursor to interactive wallpaper surfaces (physical,
 /// monitor-relative coordinates). Skips work when the cursor has not moved.
 fn bridge_cursor(
@@ -1621,6 +1704,7 @@ fn bridge_cursor(
 /// directly — and feeds the cursor to interactive wallpaper surfaces.
 fn drag_watcher(app: AppHandle) {
     thread::spawn(move || {
+        let mut pressing: Option<(DragState, POINT, Instant)> = None;
         let mut dragging: Option<DragState> = None;
         let mut button_was_down = false;
         let mut cursor_last: Option<POINT> = None;
@@ -1639,20 +1723,39 @@ fn drag_watcher(app: AppHandle) {
             bridge_cursor(&app, &host, cursor, &mut cursor_last, &mut monitor_cache);
 
             if button_down && !button_was_down {
-                if dragging.is_none() {
-                    dragging = begin_drag(&app, &host, cursor);
+                if dragging.is_none() && pressing.is_none() {
+                    if let Some(drag) = begin_drag(&app, &host, cursor) {
+                        pressing = Some((drag, cursor, Instant::now()));
+                    }
                 }
             } else if button_down {
                 if let Some(active) = dragging {
                     drag_move(&app, &host, &active, cursor);
+                } else if let Some((drag, start, _)) = pressing {
+                    if (cursor.x - start.x).abs() + (cursor.y - start.y).abs() > DRAG_THRESHOLD_PX {
+                        dragging = Some(drag);
+                        pressing = None;
+                        drag_move(&app, &host, &drag, cursor);
+                    }
                 }
             } else if !button_down && button_was_down {
                 if let Some(active) = dragging.take() {
                     finish_drag(&app, &host, &state, &active, cursor);
+                } else if let Some((drag, start, at)) = pressing.take() {
+                    let moved = (cursor.x - start.x).abs() + (cursor.y - start.y).abs()
+                        > DRAG_THRESHOLD_PX;
+                    // A quick press that barely moved is a click on the
+                    // widget's content, not a drag.
+                    if !moved && at.elapsed().as_millis() < 900 {
+                        forward_click(&app, &host, drag.widget_id, cursor);
+                    }
                 }
             }
             button_was_down = button_down;
-            interval = if dragging.is_some() || has_interactive_surfaces(&host) {
+            interval = if dragging.is_some()
+                || pressing.is_some()
+                || has_interactive_surfaces(&host)
+            {
                 DRAG_POLL_FAST_MS
             } else {
                 DRAG_POLL_MS
