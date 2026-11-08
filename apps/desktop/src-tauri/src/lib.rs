@@ -553,6 +553,26 @@ async fn widgets_sync(
     desktop_host::sync_widgets(&app, host.inner(), state.inner())
 }
 
+/// Dev-only harness helper (debug builds only): waits until the widget is
+/// visible on the desktop, then drives the drag code path with no
+/// synthesized input. Does nothing in release builds.
+#[tauri::command]
+fn dev_widget_drag_when_ready(
+    app: tauri::AppHandle,
+    id: i64,
+    dx: i32,
+    dy: i32,
+    timeout_secs: u64,
+) {
+    #[cfg(not(debug_assertions))]
+    let _ = (&app, id, dx, dy, timeout_secs);
+
+    #[cfg(debug_assertions)]
+    std::thread::spawn(move || {
+        desktop_host::dev_drag_when_ready(&app, id, dx, dy, timeout_secs);
+    });
+}
+
 #[tauri::command]
 fn system_stats() -> Result<system_info::SystemStats, String> {
     system_info::sample()
@@ -904,6 +924,7 @@ pub fn run() {
             widget_update,
             widget_remove,
             widgets_sync,
+            dev_widget_drag_when_ready,
             system_stats,
             widget_open,
             db_health,

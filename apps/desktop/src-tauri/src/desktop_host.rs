@@ -23,6 +23,9 @@ use tauri::{window::Color, AppHandle, Emitter, Manager, Monitor, WebviewUrl, Web
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
+};
 use windows::Win32::Graphics::Gdi::{
     ClientToScreen, CreateRectRgn, GetMonitorInfoW, MonitorFromWindow, ScreenToClient,
     SetWindowRgn, MONITORINFO, MONITOR_DEFAULTTONEAREST,
@@ -38,14 +41,14 @@ use windows::Win32::UI::Shell::{
     QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetClientRect, GetCursorPos,
-    GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
-    IsWindow, PostMessageW, SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, WindowFromPoint, GWL_EXSTYLE, GWL_STYLE, GW_CHILD,
-    GW_HWNDNEXT, HWND_BOTTOM, LWA_ALPHA, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
-    SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WS_CAPTION,
-    WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW,
-    WS_POPUP,
+    EnumWindows, FindWindowExW, FindWindowW, GetAncestor, GetClassNameW, GetClientRect,
+    GetCursorPos, GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowThreadProcessId, IsWindow, PostMessageW, SendMessageTimeoutW,
+    SetLayeredWindowAttributes, SetParent, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    WindowFromPoint, GA_ROOT, GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT, HWND_BOTTOM,
+    LWA_ALPHA, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    SW_SHOWNOACTIVATE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WS_CAPTION, WS_CHILD,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_POPUP,
 };
 
 use crate::storage::{self, AppState};
@@ -1436,6 +1439,11 @@ fn point_over_widget_window(app: &AppHandle, host: &HostState, cursor: POINT) ->
     if hwnd.0.is_null() {
         return false;
     }
+    // WindowFromPoint reports the deepest child (the WebView2 input
+    // window); walk up to the top-level window to compare against the
+    // widget handles.
+    let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+    let hwnd = if root.0.is_null() { hwnd } else { root };
     let mine: Vec<isize> = {
         let Ok(inner) = host.inner.lock() else {
             return false;
@@ -1506,23 +1514,15 @@ fn begin_drag(app: &AppHandle, host: &HostState, cursor: POINT) -> Option<DragSt
 }
 
 fn drag_move(app: &AppHandle, host: &HostState, drag: &DragState, cursor: POINT) {
-    let (parent_raw, label) = {
+    let label = {
         let Ok(inner) = host.inner.lock() else {
-            return;
-        };
-        let Some(parent) = inner.parent else {
             return;
         };
         let Some(widget) = inner.widgets.get(&drag.widget_id) else {
             return;
         };
-        (parent, widget.label.clone())
+        widget.label.clone()
     };
-    let parent = hwnd_from_raw(parent_raw);
-    let mut parent_rect = RECT::default();
-    if unsafe { GetWindowRect(parent, &mut parent_rect) }.is_err() {
-        return;
-    }
     let Some(window) = app.get_webview_window(&label) else {
         return;
     };
@@ -1531,12 +1531,34 @@ fn drag_move(app: &AppHandle, host: &HostState, drag: &DragState, cursor: POINT)
     };
     let screen_x = cursor.x - drag.offset_x;
     let screen_y = cursor.y - drag.offset_y;
+    // Attached (carded) widgets are children of the desktop layer and move
+    // in parent coordinates; bare widgets are top-level windows and move in
+    // absolute screen coordinates — no desktop layer required.
+    let attached = unsafe { GetAncestor(hwnd, GA_ROOT) } != hwnd;
+    let (target_x, target_y) = if attached {
+        let parent_raw = {
+            let Ok(inner) = host.inner.lock() else {
+                return;
+            };
+            match inner.parent {
+                Some(parent) => parent,
+                None => return,
+            }
+        };
+        let mut parent_rect = RECT::default();
+        if unsafe { GetWindowRect(hwnd_from_raw(parent_raw), &mut parent_rect) }.is_err() {
+            return;
+        }
+        (screen_x - parent_rect.left, screen_y - parent_rect.top)
+    } else {
+        (screen_x, screen_y)
+    };
     let _ = unsafe {
         SetWindowPos(
             hwnd,
             None,
-            screen_x - parent_rect.left,
-            screen_y - parent_rect.top,
+            target_x,
+            target_y,
             0,
             0,
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
@@ -1575,6 +1597,111 @@ fn finish_drag(app: &AppHandle, host: &HostState, state: &AppState, drag: &DragS
         drag.widget_id, new_x, new_y
     ));
     let _ = app.emit("host:state", ());
+}
+
+/// Dev-only harness helper: waits until the given widget is the topmost
+/// window at its own centre — i.e. genuinely visible on the desktop — then
+/// drives the same drag sequence the mouse watcher uses for a press that
+/// travels by `dx,dy`. Synthesizes no input at all, so it is safe to leave
+/// running while the user works or games; it simply waits. Afterwards the
+/// widget row is removed again (it was created by the harness for this run).
+pub fn dev_drag_when_ready(app: &AppHandle, widget_id: i64, dx: i32, dy: i32, timeout_secs: u64) {
+    let host = app.state::<HostState>();
+    let state = app.state::<AppState>();
+    let label = format!("gs-widget-{widget_id}");
+    log_line(&format!(
+        "dev drag: waiting for widget id={widget_id} to become visible"
+    ));
+
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs.max(10));
+    let press;
+    let drag;
+    loop {
+        if Instant::now() >= deadline {
+            log_line(&format!(
+                "dev drag: timed out waiting for widget id={widget_id} (covered or not placed)"
+            ));
+            finish_dev_drag(app, &host, &state, widget_id);
+            return;
+        }
+        let rect = app
+            .get_webview_window(&label)
+            .and_then(|window| window.hwnd().ok())
+            .and_then(|hwnd| {
+                let mut rect = RECT::default();
+                unsafe { GetWindowRect(hwnd, &mut rect) }
+                    .is_ok()
+                    .then_some(rect)
+            });
+        // Never step on a mouse interaction that is in progress.
+        let button_down =
+            (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+        if let Some(rect) = rect {
+            let point = POINT {
+                x: (rect.left + rect.right) / 2,
+                y: (rect.top + rect.bottom) / 2,
+            };
+            if !button_down && point_over_widget_window(app, &host, point) {
+                if let Some(found) = begin_drag(app, &host, point) {
+                    // Never act on another widget: only the test widget may
+                    // be moved by this helper.
+                    if found.widget_id == widget_id {
+                        press = point;
+                        drag = found;
+                        break;
+                    }
+                }
+            }
+        }
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    let target = POINT {
+        x: press.x + dx,
+        y: press.y + dy,
+    };
+    log_line(&format!(
+        "dev drag: driving id={widget_id} by {dx},{dy} from {},{}",
+        press.x, press.y
+    ));
+    drag_move(app, &host, &drag, target);
+    finish_drag(app, &host, &state, &drag, target);
+    log_line(&format!("dev drag: drove id={widget_id}"));
+    if let Some(window) = app.get_webview_window(&label) {
+        if let Ok(hwnd) = window.hwnd() {
+            let mut rect = RECT::default();
+            if unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok() {
+                log_line(&format!(
+                    "dev drag: window rect now {},{} {}x{}",
+                    rect.left,
+                    rect.top,
+                    rect.right - rect.left,
+                    rect.bottom - rect.top
+                ));
+            }
+        }
+    }
+
+    // Leave the window where it landed for a moment so a harness can sample
+    // its rectangle, then remove the test widget.
+    thread::sleep(Duration::from_secs(8));
+    finish_dev_drag(app, &host, &state, widget_id);
+}
+
+/// Removes one widget row (the dev test widget) and re-syncs the desktop.
+fn finish_dev_drag(app: &AppHandle, host: &HostState, state: &AppState, widget_id: i64) {
+    if let Ok(conn) = state.db.lock() {
+        let _ = conn.execute(
+            "DELETE FROM widgets WHERE id = ?1",
+            rusqlite::params![widget_id],
+        );
+    }
+    match sync_widgets(app, host, state) {
+        Ok(count) => log_line(&format!(
+            "dev drag: test widget id={widget_id} removed ({count} widgets left)"
+        )),
+        Err(error) => log_line(&format!("dev drag: cleanup sync failed: {error}")),
+    }
 }
 
 /// Depth-first search for the WebView2 input child (render widget host).
@@ -1853,6 +1980,24 @@ fn create_widget_window(
                     | (WS_EX_TOOLWINDOW.0 as isize)
                     | (WS_EX_NOACTIVATE.0 as isize),
             );
+            // Windows 11 draws a thin frame around top-level windows; the
+            // documented "no border" colour removes the outline the user
+            // was still seeing around boxless widgets.
+            match DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_BORDER_COLOR,
+                &DWMWA_COLOR_NONE as *const u32 as *const core::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            ) {
+                Ok(()) => log_line(&format!(
+                    "bare window: id={} DWM border removed",
+                    row.id
+                )),
+                Err(error) => log_line(&format!(
+                    "bare window: id={} DWM border not applied ({error})",
+                    row.id
+                )),
+            }
             let _ = SetWindowPos(
                 hwnd,
                 Some(HWND_BOTTOM),
