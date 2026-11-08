@@ -40,9 +40,18 @@ interface LauncherItem {
 
 const TEXT_FONTS = [
   "Segoe UI",
+  "Segoe UI Variable",
   "Georgia",
+  "Trebuchet MS",
+  "Verdana",
+  "Tahoma",
   "Consolas",
+  "Cascadia Code",
+  "Courier New",
   "Impact",
+  "Arial Black",
+  "Segoe Script",
+  "Ink Free",
   "Comic Sans MS",
 ];
 
@@ -181,6 +190,8 @@ export function WidgetsPage() {
         font: draft.font ?? "Segoe UI",
         size: draft.size ?? 28,
       });
+    } else if (kind === "clock") {
+      settings = JSON.stringify({ font: draft.font ?? "Segoe UI" });
     } else if (kind === "launcher") {
       settings = JSON.stringify({
         items: (draft.items ?? [])
@@ -425,6 +436,31 @@ export function WidgetsPage() {
                     disabled={!IN_TAURI || busy}
                   />
                 </label>
+              </div>
+            )}
+            {draft && widget.kind === "clock" && (
+              <div className="row">
+                <label className="row">
+                  <span className="muted">Font</span>
+                  <select
+                    className="button"
+                    value={draft.font ?? "Segoe UI"}
+                    onChange={(event) =>
+                      setDraft(widget.id, { font: event.target.value })
+                    }
+                    disabled={!IN_TAURI || busy}
+                  >
+                    {TEXT_FONTS.map((font) => (
+                      <option key={font} value={font}>
+                        {font}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="muted" style={{ fontSize: 12.5 }}>
+                  The clock floats without a background; its size follows the
+                  widget.
+                </span>
               </div>
             )}
             {draft && widget.kind === "text" && (

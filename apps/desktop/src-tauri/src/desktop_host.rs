@@ -42,9 +42,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
     IsWindow, PostMessageW, SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent,
     SetWindowLongPtrW, SetWindowPos, ShowWindow, WindowFromPoint, GWL_EXSTYLE, GWL_STYLE, GW_CHILD,
-    GW_HWNDNEXT, LWA_ALPHA, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-    SW_SHOWNOACTIVATE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WS_CAPTION, WS_CHILD,
-    WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_POPUP,
+    GW_HWNDNEXT, LWA_ALPHA, LWA_COLORKEY, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WS_CAPTION,
+    WS_CHILD, WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_POPUP,
 };
 
 use crate::storage::{self, AppState};
@@ -1777,6 +1777,10 @@ fn create_widget_window(
     let label = format!("gs-widget-{}", row.id);
     release_window_label(app, &label);
 
+    // Clock and text widgets float without a card: the page paints on pure
+    // black, which becomes a colour key so only the content shows.
+    let bare = row.kind == "clock" || row.kind == "text";
+
     let page = format!("widget.html?kind={}&id={}", url_encode(&row.kind), row.id);
     let window = WebviewWindowBuilder::new(app, label.as_str(), WebviewUrl::App(page.into()))
         .title("GameScape Widget")
@@ -1785,7 +1789,11 @@ fn create_widget_window(
         .skip_taskbar(true)
         .focused(false)
         .visible(false)
-        .background_color(Color(10, 15, 20, 255))
+        .background_color(if bare {
+            Color(0, 0, 0, 255)
+        } else {
+            Color(10, 15, 20, 255)
+        })
         .build()
         .map_err(|error| format!("cannot create a widget window: {error}"))?;
 
@@ -1812,8 +1820,13 @@ fn create_widget_window(
         }
     }
 
+    if bare {
+        // Keyed pixels (pure black) become fully transparent.
+        let _ = unsafe { SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_COLORKEY) };
+    }
+
     log_line(&format!(
-        "widget[{}] id={} hwnd=0x{:X} placed monitor={} rect={},{} {}x{}",
+        "widget[{}] id={} hwnd=0x{:X} placed monitor={} rect={},{} {}x{}{}",
         row.kind,
         row.id,
         hwnd.0 as usize,
@@ -1821,7 +1834,8 @@ fn create_widget_window(
         row.x,
         row.y,
         row.width,
-        row.height
+        row.height,
+        if bare { " bare" } else { "" }
     ));
 
     Ok(WidgetWindow {
