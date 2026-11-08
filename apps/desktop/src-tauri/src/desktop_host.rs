@@ -42,9 +42,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
     IsWindow, PostMessageW, SendMessageTimeoutW, SetLayeredWindowAttributes, SetParent,
     SetWindowLongPtrW, SetWindowPos, ShowWindow, WindowFromPoint, GWL_EXSTYLE, GWL_STYLE, GW_CHILD,
-    GW_HWNDNEXT, LWA_ALPHA, LWA_COLORKEY, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+    GW_HWNDNEXT, HWND_BOTTOM, LWA_ALPHA, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
     SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WS_CAPTION,
-    WS_CHILD, WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_POPUP,
+    WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW,
+    WS_POPUP,
 };
 
 use crate::storage::{self, AppState};
@@ -1429,6 +1430,29 @@ struct DragState {
     height: u32,
 }
 
+/// Is the topmost window at the point one of our own widget windows?
+fn point_over_widget_window(app: &AppHandle, host: &HostState, cursor: POINT) -> bool {
+    let hwnd = unsafe { WindowFromPoint(cursor) };
+    if hwnd.0.is_null() {
+        return false;
+    }
+    let mine: Vec<isize> = {
+        let Ok(inner) = host.inner.lock() else {
+            return false;
+        };
+        inner
+            .widgets
+            .values()
+            .filter_map(|widget| {
+                app.get_webview_window(&widget.label)
+                    .and_then(|window| window.hwnd().ok())
+            })
+            .map(|handle| handle.0 as isize)
+            .collect()
+    };
+    mine.contains(&(hwnd.0 as isize))
+}
+
 /// True when the topmost window at the point belongs to the desktop shell —
 /// i.e. the click really lands on the desktop and not on an app window.
 fn cursor_owns_desktop(cursor: POINT) -> bool {
@@ -1452,7 +1476,8 @@ fn cursor_owns_desktop(cursor: POINT) -> bool {
 }
 
 fn begin_drag(app: &AppHandle, host: &HostState, cursor: POINT) -> Option<DragState> {
-    if !cursor_owns_desktop(cursor) {
+    // Desktop clicks and clicks on our own (top-level) widgets both drag.
+    if !cursor_owns_desktop(cursor) && !point_over_widget_window(app, host, cursor) {
         return None;
     }
     let monitors = app.available_monitors().unwrap_or_default();
@@ -1588,6 +1613,11 @@ fn find_webview_input_hwnd(root: HWND) -> Option<HWND> {
 /// links) reacts — widgets sit behind the icons layer and never receive
 /// real input directly.
 fn forward_click(app: &AppHandle, host: &HostState, widget_id: i64, cursor: POINT) {
+    // Bare (top-level) widgets receive real clicks natively — never send a
+    // duplicate synthetic one.
+    if point_over_widget_window(app, host, cursor) {
+        return;
+    }
     let label = {
         let Ok(inner) = host.inner.lock() else {
             return;
@@ -1789,8 +1819,10 @@ fn create_widget_window(
         .skip_taskbar(true)
         .focused(false)
         .visible(false)
+        // Transparent windows need the webview's own background cleared.
+        .transparent(bare)
         .background_color(if bare {
-            Color(0, 0, 0, 255)
+            Color(0, 0, 0, 0)
         } else {
             Color(10, 15, 20, 255)
         })
@@ -1802,27 +1834,48 @@ fn create_widget_window(
         .map_err(|error| format!("widget has no window handle: {error}"))?;
 
     let position = monitor.position();
-    let rect = (
-        position.x + row.x,
-        position.y + row.y,
-        row.width.max(80),
-        row.height.max(60),
-    );
-    match attach_surface(hwnd, layer, rect) {
-        Ok(true) => {}
-        Ok(false) => {
-            let _ = window.destroy();
-            return Err("widget did not attach to the desktop layer".to_string());
-        }
-        Err(error) => {
-            let _ = window.destroy();
-            return Err(error);
-        }
-    }
+    let x = position.x + row.x;
+    let y = position.y + row.y;
+    let width = row.width.max(80);
+    let height = row.height.max(60);
 
     if bare {
-        // Keyed pixels (pure black) become fully transparent.
-        let _ = unsafe { SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_COLORKEY) };
+        // Boxless widgets: a top-level window with no redirection bitmap —
+        // WebView2 composites it with per-pixel alpha (the page background
+        // is transparent). Anchored at the bottom of the z-order: above the
+        // wallpaper, below every normal window, and natively clickable.
+        unsafe {
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(
+                hwnd,
+                GWL_EXSTYLE,
+                ex | (WS_EX_NOREDIRECTIONBITMAP.0 as isize)
+                    | (WS_EX_TOOLWINDOW.0 as isize)
+                    | (WS_EX_NOACTIVATE.0 as isize),
+            );
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_BOTTOM),
+                x,
+                y,
+                width as i32,
+                height as i32,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        }
+    } else {
+        match attach_surface(hwnd, layer, (x, y, width, height)) {
+            Ok(true) => {}
+            Ok(false) => {
+                let _ = window.destroy();
+                return Err("widget did not attach to the desktop layer".to_string());
+            }
+            Err(error) => {
+                let _ = window.destroy();
+                return Err(error);
+            }
+        }
     }
 
     log_line(&format!(

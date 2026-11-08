@@ -159,10 +159,15 @@
         background: rgba(70, 110, 170, 0.95);
       }
 
-      /* Boxless mode (clock, text): pure black becomes the window's colour
-         key, so only the content shows on the desktop. */
+      /* Boxless mode (clock, text): the whole page is transparent — the
+         window composites per-pixel, so only the content shows. */
+      html.bare,
+      body.bare {
+        background: transparent;
+      }
+
       body.bare #root {
-        background: #000000;
+        background: transparent;
         border: none;
       }
     </style>
@@ -472,9 +477,10 @@
         root.append(grid);
       }
 
-      // Boxless kinds: the window's colour key makes the page background
-      // fully transparent, so only the content shows on the desktop.
+      // Boxless kinds: the window composites per-pixel alpha, so the page
+      // background is fully transparent and only the content shows.
       if (kind === "clock" || kind === "text") {
+        document.documentElement.classList.add("bare");
         document.body.classList.add("bare");
       }
 
