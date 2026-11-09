@@ -1,5 +1,16 @@
 import { useEffect, useState } from "react";
-import { Database, Image, Layers, Monitor, Sparkles } from "lucide-react";
+import {
+  Database,
+  Image,
+  Layers,
+  LayoutTemplate,
+  Monitor,
+  Play,
+  Sparkles,
+} from "lucide-react";
+import { Link } from "react-router-dom";
+import { isThemeName } from "@gamescape/ui";
+import { useTheme } from "../app/ThemeProvider";
 import { WallpaperCard } from "../components/WallpaperCard";
 import {
   getDbHealth,
@@ -9,11 +20,22 @@ import {
   hostStatus,
   hostTurnOff,
   IN_TAURI,
+  layoutApply,
+  layoutsList,
   loadCatalogue,
   type CatalogueIndex,
   type DbHealth,
   type HostReport,
+  type LayoutEntry,
 } from "../lib/ipc";
+
+function layoutNote(entry: LayoutEntry): string {
+  const parts = [
+    `${entry.widgetCount} widget${entry.widgetCount === 1 ? "" : "s"}`,
+  ];
+  if (entry.wallpaperTitle) parts.push(`wallpaper "${entry.wallpaperTitle}"`);
+  return parts.join(" · ");
+}
 
 export function HomePage() {
   const [health, setHealth] = useState<DbHealth | null>(null);
@@ -26,6 +48,10 @@ export function HomePage() {
   });
   const [busy, setBusy] = useState(false);
   const [rotation, setRotation] = useState<{ enabled: boolean; minutes: number } | null>(null);
+  const [layouts, setLayouts] = useState<LayoutEntry[]>([]);
+  const [layoutStatus, setLayoutStatus] = useState<string | null>(null);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+  const { setTheme } = useTheme();
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +115,36 @@ export function HomePage() {
   const restoreWallpaper = async () => {
     setBusy(true);
     await hostRestorePrevious();
+    setReport(await hostStatus());
+    setBusy(false);
+  };
+
+  // Saved layouts for the quick-apply card (loaded once per visit).
+  useEffect(() => {
+    let cancelled = false;
+    void layoutsList().then((result) => {
+      if (!cancelled && result.ok) setLayouts(result.value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const applyLayout = async (entry: LayoutEntry) => {
+    setBusy(true);
+    setLayoutStatus(null);
+    setLayoutError(null);
+    const result = await layoutApply(entry.id);
+    if (result.ok) {
+      setLayoutStatus(
+        `Applied "${result.value}" — wallpaper, widgets and appearance restored.`,
+      );
+      if (entry.theme && isThemeName(entry.theme)) {
+        setTheme(entry.theme);
+      }
+    } else {
+      setLayoutError(result.error);
+    }
     setReport(await hostStatus());
     setBusy(false);
   };
@@ -209,6 +265,55 @@ export function HomePage() {
           <div className="stat-note">Pre-alpha · Phase 5</div>
         </div>
       </div>
+
+      {layouts.length > 0 && (
+        <div className="card stack">
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <strong>
+              <LayoutTemplate size={15} aria-hidden="true" /> Layouts
+            </strong>
+            <Link className="button" to="/layouts">
+              Open Layout Editor
+            </Link>
+          </div>
+          {layouts.slice(0, 4).map((entry) => (
+            <div
+              className="row"
+              key={entry.id}
+              style={{ justifyContent: "space-between" }}
+            >
+              <span
+                className="stack"
+                style={{ alignItems: "flex-start", gap: 2 }}
+              >
+                <span>{entry.name}</span>
+                <span className="muted">{layoutNote(entry)}</span>
+              </span>
+              <button
+                type="button"
+                className="button"
+                data-layout-apply={entry.id}
+                onClick={() => void applyLayout(entry)}
+                disabled={busy || entry.wallpaperAvailable === false}
+                title={
+                  entry.wallpaperAvailable === false
+                    ? "The saved wallpaper is no longer in your library"
+                    : `Apply "${entry.name}"`
+                }
+              >
+                <Play size={14} aria-hidden="true" /> Apply
+              </button>
+            </div>
+          ))}
+          {layouts.length > 4 && (
+            <div className="muted">
+              and {layouts.length - 4} more in the Layout Editor
+            </div>
+          )}
+          {layoutStatus && <div className="muted">{layoutStatus}</div>}
+          {layoutError && <div className="muted">{layoutError}</div>}
+        </div>
+      )}
 
       {featured.length > 0 && (
         <div className="stack">

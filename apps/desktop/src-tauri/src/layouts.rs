@@ -169,6 +169,61 @@ pub fn save(state: &AppState, id: Option<i64>, name: String) -> Result<i64, Stri
     Ok(id)
 }
 
+/// Copies a layout (snapshot and all) under a new name.
+pub fn duplicate(state: &AppState, id: i64) -> Result<i64, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("database lock poisoned: {e}"))?;
+    let (name, snapshot) = conn
+        .query_row(
+            "SELECT name, snapshot FROM layouts WHERE id = ?1",
+            [id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(|e| format!("this layout was not found: {e}"))?;
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM layouts", [], |row| row.get(0))
+        .unwrap_or(0);
+    if count >= 50 {
+        return Err("layout limit reached (50) — remove one first".to_string());
+    }
+    let base = format!("{name} (copy)");
+    let mut new_name: String = base.chars().take(60).collect();
+    let mut attempt = 2;
+    while conn
+        .query_row(
+            "SELECT COUNT(*) FROM layouts WHERE name = ?1",
+            [new_name.as_str()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0
+    {
+        let suffix = format!(" {attempt}");
+        let keep = 60usize.saturating_sub(suffix.chars().count());
+        new_name = format!(
+            "{}{suffix}",
+            base.chars().take(keep).collect::<String>()
+        );
+        attempt += 1;
+        if attempt > 20 {
+            break;
+        }
+    }
+    conn.execute(
+        "INSERT INTO layouts (name, snapshot) VALUES (?1, ?2)",
+        rusqlite::params![new_name, snapshot],
+    )
+    .map_err(|e| format!("cannot duplicate the layout: {e}"))?;
+    let new_id = conn.last_insert_rowid();
+    drop(conn);
+    desktop_host::log_line(&format!(
+        "layout duplicate: id={id} -> id={new_id} '{new_name}'"
+    ));
+    Ok(new_id)
+}
+
 /// Renames a layout without touching its snapshot.
 pub fn rename(state: &AppState, id: i64, name: String) -> Result<(), String> {
     let name = validate_name(&name)?;
@@ -530,9 +585,21 @@ mod tests {
         rename(&state, id, "Day owl".to_string()).expect("rename");
         assert_eq!(list(&state).unwrap()[0].name, "Day owl");
 
+        // Duplicates copy the snapshot and pick a free name.
+        let dup = duplicate(&state, id).expect("duplicate");
+        assert_ne!(dup, id);
+        let names: Vec<String> = list(&state).unwrap().into_iter().map(|r| r.name).collect();
+        assert!(names.contains(&"Day owl (copy)".to_string()));
+        let dup2 = duplicate(&state, id).expect("duplicate again");
+        let names: Vec<String> = list(&state).unwrap().into_iter().map(|r| r.name).collect();
+        assert!(names.contains(&"Day owl (copy) 2".to_string()));
+        remove(&state, dup).expect("remove duplicate");
+        remove(&state, dup2).expect("remove second duplicate");
+
         // Unknown ids are rejected.
         assert!(rename(&state, 999, "x".to_string()).is_err());
         assert!(save(&state, Some(999), "x".to_string()).is_err());
+        assert!(duplicate(&state, 999).is_err());
 
         remove(&state, id).expect("remove");
         assert!(list(&state).unwrap().is_empty());

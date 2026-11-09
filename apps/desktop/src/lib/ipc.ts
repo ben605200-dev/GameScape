@@ -454,6 +454,10 @@ export const layoutSave = (id: number | null, name: string) =>
 export const layoutRename = (id: number, name: string) =>
   runAction<void>("layout_rename", { id, name });
 
+/** Copy a layout (snapshot and all) under a new name. */
+export const layoutDuplicate = (id: number) =>
+  runAction<number>("layout_duplicate", { id });
+
 export const layoutRemove = (id: number) => runAction<void>("layout_remove", { id });
 
 /** Apply a layout — wallpaper, widgets and appearance in one click. */

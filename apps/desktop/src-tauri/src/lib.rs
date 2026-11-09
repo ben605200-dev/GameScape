@@ -604,6 +604,11 @@ fn layout_rename(
 }
 
 #[tauri::command]
+fn layout_duplicate(state: tauri::State<'_, AppState>, id: i64) -> Result<i64, String> {
+    layouts::duplicate(state.inner(), id)
+}
+
+#[tauri::command]
 fn layout_remove(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
     layouts::remove(state.inner(), id)
 }
@@ -974,6 +979,7 @@ pub fn run() {
             layouts_list,
             layout_save,
             layout_rename,
+            layout_duplicate,
             layout_remove,
             layout_apply,
             system_stats,

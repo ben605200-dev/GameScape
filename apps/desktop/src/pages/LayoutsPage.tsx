@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Check,
+  Copy,
   LayoutTemplate,
   Pencil,
   RefreshCw,
@@ -15,6 +16,7 @@ import {
   assetUrl,
   IN_TAURI,
   layoutApply,
+  layoutDuplicate,
   layoutRemove,
   layoutRename,
   layoutSave,
@@ -116,6 +118,20 @@ export function LayoutsPage() {
     if (result.ok) {
       setStatus(`Renamed to "${renameText.trim()}".`);
       setRenamingId(null);
+    } else {
+      setError(result.error);
+    }
+    await load();
+    setBusy(false);
+  };
+
+  const duplicate = async (entry: LayoutEntry) => {
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    const result = await layoutDuplicate(entry.id);
+    if (result.ok) {
+      setStatus(`Copied "${entry.name}".`);
     } else {
       setError(result.error);
     }
@@ -246,6 +262,15 @@ export function LayoutsPage() {
               title="Refresh this layout from the current desktop"
             >
               <RefreshCw size={14} aria-hidden="true" /> Update
+            </button>
+            <button
+              type="button"
+              className="button"
+              onClick={() => void duplicate(entry)}
+              disabled={!IN_TAURI || busy}
+              title="Copy this layout under a new name"
+            >
+              <Copy size={14} aria-hidden="true" /> Duplicate
             </button>
             <button
               type="button"
