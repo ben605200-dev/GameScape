@@ -6,6 +6,7 @@
 mod artwork;
 mod catalogue;
 mod desktop_host;
+mod layouts;
 mod library;
 mod storage;
 mod system_info;
@@ -573,6 +574,51 @@ fn dev_widget_drag_when_ready(
     });
 }
 
+/* ------------------------------------------------------------------ */
+/* Layout Editor                                                       */
+/* ------------------------------------------------------------------ */
+
+#[tauri::command]
+fn layouts_list(state: tauri::State<'_, AppState>) -> Result<Vec<layouts::LayoutRow>, String> {
+    layouts::list(state.inner())
+}
+
+/// Saves the current desktop as a layout (`id` absent) or refreshes an
+/// existing one in place.
+#[tauri::command]
+fn layout_save(
+    state: tauri::State<'_, AppState>,
+    id: Option<i64>,
+    name: String,
+) -> Result<i64, String> {
+    layouts::save(state.inner(), id, name)
+}
+
+#[tauri::command]
+fn layout_rename(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    name: String,
+) -> Result<(), String> {
+    layouts::rename(state.inner(), id, name)
+}
+
+#[tauri::command]
+fn layout_remove(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
+    layouts::remove(state.inner(), id)
+}
+
+/// Applies a layout: appearance, widgets and wallpaper in one click.
+#[tauri::command]
+async fn layout_apply(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    host: tauri::State<'_, desktop_host::HostState>,
+    id: i64,
+) -> Result<String, String> {
+    layouts::apply(&app, state.inner(), host.inner(), id)
+}
+
 #[tauri::command]
 fn system_stats() -> Result<system_info::SystemStats, String> {
     system_info::sample()
@@ -925,6 +971,11 @@ pub fn run() {
             widget_remove,
             widgets_sync,
             dev_widget_drag_when_ready,
+            layouts_list,
+            layout_save,
+            layout_rename,
+            layout_remove,
+            layout_apply,
             system_stats,
             widget_open,
             db_health,

@@ -244,6 +244,18 @@ CREATE TABLE IF NOT EXISTS widgets (
 );
 "#;
 
+/// Schema v6 — saved desktop layouts (Layout Editor): a named snapshot of
+/// wallpaper state, widgets and appearance, switchable in one click.
+const V6_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS layouts (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  snapshot TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
+
 fn migrations() -> &'static [(i64, &'static str)] {
     &[
         (1, V1_SQL),
@@ -251,6 +263,7 @@ fn migrations() -> &'static [(i64, &'static str)] {
         (3, V3_SQL),
         (4, V4_SQL),
         (5, V5_SQL),
+        (6, V6_SQL),
     ]
 }
 

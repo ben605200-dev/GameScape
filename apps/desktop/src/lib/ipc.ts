@@ -424,6 +424,41 @@ export const widgetsSync = () => runAction<number>("widgets_sync");
 
 export const systemStats = () => runAction<SystemStats>("system_stats");
 
+/* ------------------------------------------------------------------ */
+/* Layout Editor                                                       */
+/* ------------------------------------------------------------------ */
+
+export interface LayoutEntry {
+  id: number;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  wallpaperTitle?: string | null;
+  wallpaperKind?: string | null;
+  wallpaperMediaId?: number | null;
+  /** Thumbnail file path of the layout's wallpaper, when available. */
+  wallpaperThumb?: string | null;
+  /** null = layout has no wallpaper; false = no longer in the library. */
+  wallpaperAvailable?: boolean | null;
+  widgetCount: number;
+  fit?: string | null;
+  theme?: string | null;
+}
+
+export const layoutsList = () => runAction<LayoutEntry[]>("layouts_list");
+
+/** Save the current desktop as a layout (pass an id to refresh one). */
+export const layoutSave = (id: number | null, name: string) =>
+  runAction<number>("layout_save", { id, name });
+
+export const layoutRename = (id: number, name: string) =>
+  runAction<void>("layout_rename", { id, name });
+
+export const layoutRemove = (id: number) => runAction<void>("layout_remove", { id });
+
+/** Apply a layout — wallpaper, widgets and appearance in one click. */
+export const layoutApply = (id: number) => runAction<string>("layout_apply", { id });
+
 export const collectionsList = () => runAction<CollectionSummary[]>("collections_list");
 
 export const collectionCreate = (name: string) =>

@@ -714,3 +714,24 @@ button {
   color: var(--gs-text-muted);
   font-family: var(--gs-font-mono);
 }
+
+/* ---------------------------------------------------------------------
+ * Layout Editor
+ * ------------------------------------------------------------------- */
+
+.layout-thumb {
+  width: 148px;
+  height: 83px;
+  border-radius: var(--gs-radius-md);
+  border: 1px solid var(--gs-border-subtle);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.layout-thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gs-bg-raised);
+  color: var(--gs-text-secondary);
+}
