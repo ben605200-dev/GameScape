@@ -19,6 +19,6 @@
     "community:check": "node scripts/community-standards-check.mjs"
   },
   "devDependencies": {
-    "turbo": "^2.5.0"
+    "turbo": "^2.11.11"
   }
 }
